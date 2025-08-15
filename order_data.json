@@ -1,0 +1,139 @@
+{
+  "items": [
+    {
+      "filename": "35660 - Vista Print - RT3711G_M2AD925864 - RT3711_#1_print lines",
+      "info": "Vista Print QUANTITY: 500 JOB NUMBER: 35660 Printed Box-CMYK 19.2pt Gloss Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "35660 - Vista Print - #1 - 500",
+      "artName": "35660_RT3711G_M2AD925864_#1",
+      "templateName": "RT3711",
+      "lamType": "Gloss",
+      "paperType": "10in",
+      "order_id": "35660",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista"
+    },
+    {
+      "filename": "35661 - Vista Print - RT3715M_M609FH90FG - RT3715_#1_print lines",
+      "info": "Vista Print QUANTITY: 100 JOB NUMBER: 35661 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "35661 - Vista Print - #1 - 100",
+      "artName": "35661_RT3715M_M609FH90FG_#1",
+      "templateName": "RT3715",
+      "lamType": "Matte",
+      "paperType": "13in",
+      "order_id": "35661",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista"
+    },
+    {
+      "filename": "35661 - Vista Print - RT3715G_MDC6239A75 - RT3715_#2_print lines",
+      "info": "Vista Print QUANTITY: 100 JOB NUMBER: 35661 Printed Box-CMYK 19.2pt Gloss Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "35661 - Vista Print - #2 - 100",
+      "artName": "35661_RT3715G_MDC6239A75_#2",
+      "templateName": "RT3715",
+      "lamType": "Gloss",
+      "order_id": "35661",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista",
+      "paperType": "13in"
+    },
+    {
+      "filename": "35662 - Vista Print - RT3710G_M58E4F0BH7 - RT3710_#1_print lines",
+      "info": "Vista Print QUANTITY: 100 JOB NUMBER: 35662 Printed Box-CMYK 19.2pt Gloss Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "35662 - Vista Print - #1 - 100",
+      "artName": "35662_RT3710G_M58E4F0BH7_#1",
+      "templateName": "RT3710",
+      "lamType": "Gloss",
+      "paperType": "10in",
+      "order_id": "35662",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista"
+    },
+    {
+      "filename": "35665 - Vista Print - TT3090M_M021B6CADG - TT3090_#1_print lines",
+      "info": "Vista Print QUANTITY: 1000 JOB NUMBER: 35665 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "35665 - Vista Print - #1 - 1000",
+      "artName": "35665_TT3090M_M021B6CADG_#1",
+      "templateName": "TT3090",
+      "lamType": "Matte",
+      "paperType": "13in",
+      "order_id": "35665",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista"
+    }
+  ],
+  "pairs": [
+    {
+      "art_id": "M2AD925864",
+      "template": "RT3711",
+      "art_path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35660\\art\\M2AD925864.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\Testing\\RT3711_print 10in -vp.pdf",
+      "qty": 500,
+      "paperType": "10in",
+      "lamType": "Gloss",
+      "order_id": "35660"
+    },
+    {
+      "art_id": "M609FH90FG",
+      "template": "RT3715",
+      "art_path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35661\\art\\M609FH90FG.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\RT3715_print 13in -vp.pdf",
+      "qty": 100,
+      "paperType": "13in",
+      "lamType": "Matte",
+      "order_id": "35661"
+    },
+    {
+      "art_id": "MDC6239A75",
+      "template": "RT3715",
+      "art_path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35661\\art\\MDC6239A75.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\RT3715_print 13in -vp.pdf",
+      "qty": 100,
+      "paperType": "13in",
+      "lamType": "Gloss",
+      "order_id": "35661"
+    },
+    {
+      "art_id": "M58E4F0BH7",
+      "template": "RT3710",
+      "art_path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35662\\art\\M58E4F0BH7.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\Testing\\RT3710_print 10in -vp.pdf",
+      "qty": 100,
+      "paperType": "10in",
+      "lamType": "Gloss",
+      "order_id": "35662"
+    },
+    {
+      "art_id": "M021B6CADG",
+      "template": "TT3090",
+      "art_path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35665\\art\\M021B6CADG.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\TT3090_print 13in -vp.pdf",
+      "qty": 1000,
+      "paperType": "13in",
+      "lamType": "Matte",
+      "order_id": "35665"
+    }
+  ],
+  "art_dir": "",
+  "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+  "month_dir": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista",
+  "order_id": "35665",
+  "show_summary": true,
+  "diagnostic": false,
+  "preserve_color_profile": true,
+  "summary_dir": "C:\\Users\\neone\\Documents\\AI\\Valis Software\\Valis64-codex-add-template-settings-editor-in-settings-tab\\Valis64-codex-add-template-settings-editor-in-settings-tab\\temp\\summary"
+}

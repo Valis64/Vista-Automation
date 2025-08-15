@@ -1,0 +1,57 @@
+import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+from utils.common import (
+    load_template_settings,
+    save_template_settings,
+    validate_template_settings,
+)
+
+class TemplateSettingsTest(unittest.TestCase):
+    def test_rt3055_rotation(self):
+        settings = load_template_settings("RT3055")
+        self.assertEqual(settings.get("rotation"), 270)
+
+    def test_tt3055_rotation(self):
+        settings = load_template_settings("TT3055")
+        self.assertEqual(settings.get("rotation"), 270)
+
+    def test_pb004_rotation(self):
+        settings = load_template_settings("PB004")
+        self.assertEqual(settings.get("rotation"), 180)
+
+    def test_tt3075_rotation(self):
+        settings = load_template_settings("TT3075")
+        self.assertEqual(settings.get("rotation"), 270)
+
+    def test_tt3062_rotation(self):
+        settings = load_template_settings("TT3062")
+        self.assertEqual(settings.get("rotation"), 270)
+
+    def test_lb3218_rotation(self):
+        settings = load_template_settings("LB3218")
+        self.assertEqual(settings.get("rotation"), 180)
+
+    def test_rt3734_rotation(self):
+        settings = load_template_settings("RT3734")
+        self.assertEqual(settings.get("rotation"), 90)
+
+    def test_rt3722_rotation(self):
+        settings = load_template_settings("RT3722")
+        self.assertEqual(settings.get("rotation"), 90)
+
+    def test_save_and_load(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                save_template_settings("ZZ0001", {"rotation": 45})
+                data = load_template_settings("ZZ0001")
+                self.assertEqual(data["rotation"], 45)
+
+    def test_validation(self):
+        self.assertTrue(validate_template_settings({"rotation": 90}))
+        self.assertFalse(validate_template_settings({"rotation": "90"}))
+        self.assertFalse(validate_template_settings({"extra": 1}))
+
+if __name__ == "__main__":
+    unittest.main()
