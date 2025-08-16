@@ -33,6 +33,8 @@ from utils.common import (
     load_template_settings,
     save_template_settings,
     update_template_settings,
+    export_template_settings,
+    import_template_settings,
     is_coffee_sleeve,
     is_pb001,
     is_pb005,
@@ -1570,6 +1572,45 @@ class App:
                 except Exception as exc:
                     messagebox.showerror("Error", str(exc))
 
+        def export_settings():
+            path = filedialog.asksaveasfilename(
+                title="Export Template Settings",
+                defaultextension=".zip",
+                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                export_template_settings(path)
+                messagebox.showinfo("Exported", f"Settings exported to {path}")
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+
+        def import_settings():
+            path = filedialog.askopenfilename(
+                title="Import Template Settings",
+                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                import_template_settings(path, overwrite=False)
+            except FileExistsError:
+                if not messagebox.askyesno(
+                    "Overwrite?",
+                    "Importing will overwrite existing settings. Continue?",
+                ):
+                    return
+                try:
+                    import_template_settings(path, overwrite=True)
+                except Exception as exc:
+                    messagebox.showerror("Error", str(exc))
+                    return
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+                return
+            refresh_table()
+
         btn_frame = tk.Frame(edit_frame)
         btn_frame.grid(row=2, column=0, columnspan=2, pady=5)
         save_btn = tk.Button(btn_frame, text="Save", state="disabled", command=save)
@@ -1579,6 +1620,10 @@ class App:
         tk.Label(edit_frame, textvariable=status_var, fg="green").grid(
             row=3, column=0, columnspan=2, sticky="w"
         )
+        io_frame = tk.Frame(edit_frame)
+        io_frame.grid(row=4, column=0, columnspan=2, pady=5)
+        tk.Button(io_frame, text="Export", command=export_settings).pack(side="left", padx=2)
+        tk.Button(io_frame, text="Import", command=import_settings).pack(side="left", padx=2)
 
         tree.tag_configure("unsaved", background="#fff3cd")
         refresh_table()

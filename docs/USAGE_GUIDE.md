@@ -119,6 +119,8 @@ Example:
 The program automatically loads these files when processing a matching template.
 
 Open the **Template Settings** dialog from the Settings tab to create, edit or delete these JSON files directly from the GUI.
+Use the **Export** button to save all settings to a ZIP archive and **Import** to
+restore them. Importing asks for confirmation before overwriting existing files.
 
 ## 12. Additional Notes
 
