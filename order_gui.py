@@ -32,6 +32,7 @@ from utils.common import (
     get_laminate_color,
     load_template_settings,
     save_template_settings,
+    update_template_settings,
     is_coffee_sleeve,
     is_pb001,
     is_pb005,
@@ -1446,6 +1447,7 @@ class App:
 
         rotation_var = tk.StringVar()
         bleed_var = tk.StringVar()
+        status_var = tk.StringVar()
 
         def load_selected(event=None):
             sel = self.ts_list.curselection()
@@ -1469,21 +1471,30 @@ class App:
             sel = self.ts_list.curselection()
             if not sel:
                 return
-            code = codes[sel[0]]
-            data = {}
+            idx = sel[0]
+            code = codes[idx]
+            updates: dict[str, object] = {}
             rot_text = rotation_var.get().strip()
             if rot_text:
                 try:
-                    data["rotation"] = int(rot_text)
+                    updates["rotation"] = int(rot_text)
                 except ValueError:
                     messagebox.showerror("Error", "Rotation must be an integer")
                     return
+            else:
+                updates["rotation"] = None
             paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
             if paths:
-                data["bleedPaths"] = paths
+                updates["bleedPaths"] = paths
+            else:
+                updates["bleedPaths"] = None
             try:
-                save_template_settings(code, data)
+                update_template_settings(code, updates)
                 refresh_list()
+                self.ts_list.selection_set(idx)
+                load_selected()
+                status_var.set("Saved")
+                win.after(2000, lambda: status_var.set(""))
             except Exception as exc:
                 messagebox.showerror("Error", str(exc))
 
@@ -1525,6 +1536,9 @@ class App:
         tk.Button(btn_frame, text="Save", command=save).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Add", command=add_new).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Delete", command=delete_selected).pack(side="left", padx=2)
+        tk.Label(edit_frame, textvariable=status_var, fg="green").grid(
+            row=3, column=0, columnspan=2, sticky="w"
+        )
 
         refresh_list()
 

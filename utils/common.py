@@ -69,6 +69,20 @@ def save_template_settings(code: str, data: dict) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def update_template_settings(code: str, updates: dict) -> None:
+    """Merge ``updates`` into existing settings for ``code`` and save.
+
+    ``updates`` may include ``None`` values to remove keys from the settings.
+    """
+    data = load_template_settings(code)
+    for key, value in updates.items():
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+    save_template_settings(code, data)
+
+
 def is_coffee_sleeve(template: str) -> bool:
     """Return True if the template code indicates a coffee sleeve."""
     return template.strip().upper() == "CD0434" if template else False
@@ -89,6 +103,7 @@ __all__ = [
     "get_laminate_color",
     "load_template_settings",
     "save_template_settings",
+    "update_template_settings",
     "validate_template_settings",
     "is_coffee_sleeve",
     "is_pb001",
