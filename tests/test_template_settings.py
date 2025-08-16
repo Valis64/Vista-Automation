@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import json
 from pathlib import Path
 from unittest.mock import patch
 from utils.common import (
@@ -43,6 +44,14 @@ class TemplateSettingsTest(unittest.TestCase):
 
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {"rotation": {"type": "integer"}},
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
             with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
                 save_template_settings("ZZ0001", {"rotation": 45})
                 data = load_template_settings("ZZ0001")
@@ -50,8 +59,27 @@ class TemplateSettingsTest(unittest.TestCase):
 
     def test_validation(self):
         self.assertTrue(validate_template_settings({"rotation": 90}))
-        self.assertFalse(validate_template_settings({"rotation": "90"}))
-        self.assertFalse(validate_template_settings({"extra": 1}))
+        with self.assertRaises(ValueError):
+            validate_template_settings({"rotation": "90"})
+        with self.assertRaises(ValueError):
+            validate_template_settings({"extra": 1})
+
+    def test_validation_schema_change(self):
+        schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "Template settings",
+            "type": "object",
+            "required": ["rotation"],
+            "properties": {"rotation": {"type": "integer"}},
+            "additionalProperties": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / "schema.json"
+            schema_path.write_text(json.dumps(schema))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                with self.assertRaises(ValueError) as ctx:
+                    validate_template_settings({})
+                self.assertIn("rotation", str(ctx.exception))
 
 if __name__ == "__main__":
     unittest.main()

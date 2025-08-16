@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import jsonschema
 import sys
 from pathlib import Path
 
@@ -44,25 +45,24 @@ def load_template_settings(code: str) -> dict:
 
 
 def validate_template_settings(data: dict) -> bool:
-    """Return True if the given dictionary follows ``schema.json``."""
-    if not isinstance(data, dict):
-        return False
-    allowed = {"rotation", "bleedPaths"}
-    if not all(k in allowed for k in data):
-        return False
-    if "rotation" in data and not isinstance(data["rotation"], int):
-        return False
-    if "bleedPaths" in data:
-        bp = data["bleedPaths"]
-        if not isinstance(bp, list) or not all(isinstance(x, str) for x in bp):
-            return False
+    """Validate ``data`` against ``schema.json``.
+
+    Returns True if ``data`` is valid; otherwise raises ``ValueError`` with a
+    descriptive message.
+    """
+    schema_path = TEMPLATE_SETTINGS_DIR / "schema.json"
+    with schema_path.open("r", encoding="utf-8") as f:
+        schema = json.load(f)
+    try:
+        jsonschema.validate(instance=data, schema=schema)
+    except jsonschema.ValidationError as exc:
+        raise ValueError(f"Invalid template settings: {exc.message}") from exc
     return True
 
 
 def save_template_settings(code: str, data: dict) -> None:
     """Write ``data`` as JSON for the given template ``code``."""
-    if not validate_template_settings(data):
-        raise ValueError("Invalid template settings")
+    validate_template_settings(data)
     path = TEMPLATE_SETTINGS_DIR / f"{code.upper()}.json"
     TEMPLATE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
