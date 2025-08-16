@@ -1436,7 +1436,7 @@ class App:
 
         table_frame = tk.Frame(win)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        columns = ("code", "rotation", "bleed")
+        columns = ("code", "rotation", "bleed", "mirror", "artworkScale")
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
@@ -1454,6 +1454,8 @@ class App:
 
         rotation_var = tk.StringVar()
         bleed_var = tk.StringVar()
+        mirror_var = tk.BooleanVar()
+        scale_var = tk.StringVar()
         status_var = tk.StringVar()
         unsaved = {"flag": False}
 
@@ -1466,7 +1468,14 @@ class App:
                 data = load_template_settings(code)
                 rot = data.get("rotation", "")
                 bleed = ", ".join(data.get("bleedPaths", []))
-                tree.insert("", "end", iid=code, values=(code, rot, bleed))
+                mirror = data.get("mirror", False)
+                scale = data.get("artworkScale", "")
+                tree.insert(
+                    "",
+                    "end",
+                    iid=code,
+                    values=(code, rot, bleed, mirror, scale),
+                )
 
         def load_selected(event=None):
             sel = tree.selection()
@@ -1476,6 +1485,8 @@ class App:
             data = load_template_settings(code)
             rotation_var.set(str(data.get("rotation", "")))
             bleed_var.set(", ".join(data.get("bleedPaths", [])))
+            mirror_var.set(bool(data.get("mirror", False)))
+            scale_var.set(str(data.get("artworkScale", "")))
             unsaved["flag"] = False
             update_state()
             tree.tag_remove("unsaved", code)
@@ -1488,15 +1499,26 @@ class App:
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
+        tk.Checkbutton(edit_frame, text="Mirror", variable=mirror_var).grid(
+            row=2, column=0, columnspan=2, sticky="w"
+        )
+        tk.Label(edit_frame, text="Artwork Scale").grid(row=3, column=0, sticky="w")
+        tk.Entry(edit_frame, textvariable=scale_var).grid(row=3, column=1, sticky="we")
         edit_frame.grid_columnconfigure(1, weight=1)
 
         def validate() -> bool:
             rot = rotation_var.get().strip()
             bleed = bleed_var.get().strip()
-            if not rot or not bleed:
+            scale = scale_var.get().strip()
+            if not rot or not bleed or not scale:
                 return False
             try:
                 int(rot)
+            except ValueError:
+                return False
+            try:
+                if float(scale) < 0:
+                    return False
             except ValueError:
                 return False
             return True
@@ -1511,6 +1533,8 @@ class App:
 
         rotation_var.trace_add("write", mark_unsaved)
         bleed_var.trace_add("write", mark_unsaved)
+        mirror_var.trace_add("write", mark_unsaved)
+        scale_var.trace_add("write", mark_unsaved)
 
         def update_state():
             if unsaved["flag"] and validate():
@@ -1528,9 +1552,21 @@ class App:
             updates["rotation"] = int(rot_text)
             paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
             updates["bleedPaths"] = paths
+            updates["mirror"] = mirror_var.get()
+            scale_text = scale_var.get().strip()
+            updates["artworkScale"] = float(scale_text)
             try:
                 update_template_settings(code, updates)
-                tree.item(code, values=(code, updates["rotation"], ", ".join(paths)))
+                tree.item(
+                    code,
+                    values=(
+                        code,
+                        updates["rotation"],
+                        ", ".join(paths),
+                        updates["mirror"],
+                        updates["artworkScale"],
+                    ),
+                )
                 status_var.set("Saved")
                 win.after(2000, lambda: status_var.set(""))
                 unsaved["flag"] = False
@@ -1625,6 +1661,8 @@ class App:
                     refresh_table()
                     rotation_var.set("")
                     bleed_var.set("")
+                    mirror_var.set(False)
+                    scale_var.set("")
                     unsaved["flag"] = False
                     update_state()
                 except Exception as exc:
@@ -1670,16 +1708,16 @@ class App:
             refresh_table()
 
         btn_frame = tk.Frame(edit_frame)
-        btn_frame.grid(row=2, column=0, columnspan=2, pady=5)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=5)
         save_btn = tk.Button(btn_frame, text="Save", state="disabled", command=save)
         save_btn.pack(side="left", padx=2)
         tk.Button(btn_frame, text="Add", command=add_new).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Delete", command=delete_selected).pack(side="left", padx=2)
         tk.Label(edit_frame, textvariable=status_var, fg="green").grid(
-            row=3, column=0, columnspan=2, sticky="w"
+            row=5, column=0, columnspan=2, sticky="w"
         )
         io_frame = tk.Frame(edit_frame)
-        io_frame.grid(row=4, column=0, columnspan=2, pady=5)
+        io_frame.grid(row=6, column=0, columnspan=2, pady=5)
         tk.Button(io_frame, text="Export", command=export_settings).pack(side="left", padx=2)
         tk.Button(io_frame, text="Import", command=import_settings).pack(side="left", padx=2)
 
