@@ -31,8 +31,12 @@ def get_laminate_color(name: str) -> str:
     return LAM_COLORS.get(key, "#000000")
 
 
-def load_template_settings(code: str) -> dict:
-    """Return per-template settings loaded from ``template_settings``."""
+def load_template_settings(code: str, *, defaults: bool = True) -> dict:
+    """Return per-template settings loaded from ``template_settings``.
+
+    When ``defaults`` is True, missing optional keys such as ``mirror`` and
+    ``artworkScale`` are populated with safe defaults.
+    """
     if not code:
         return {}
     path = TEMPLATE_SETTINGS_DIR / f"{code.upper()}.json"
@@ -40,7 +44,13 @@ def load_template_settings(code: str) -> dict:
         return {}
     try:
         with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        validate_template_settings(data)
+        if defaults:
+            data = dict(data)
+            data.setdefault("mirror", False)
+            data.setdefault("artworkScale", 1)
+        return data
     except Exception:
         return {}
 
@@ -75,7 +85,7 @@ def update_template_settings(code: str, updates: dict) -> None:
 
     ``updates`` may include ``None`` values to remove keys from the settings.
     """
-    data = load_template_settings(code)
+    data = load_template_settings(code, defaults=False)
     for key, value in updates.items():
         if value is None:
             data.pop(key, None)

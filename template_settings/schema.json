@@ -11,6 +11,15 @@
       "type": "array",
       "items": {"type": "string"},
       "description": "Additional bleed path names to use"
+    },
+    "mirror": {
+      "type": "boolean",
+      "description": "Mirror artwork horizontally before placement"
+    },
+    "artworkScale": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Scale factor applied to artwork (1 = 100%)"
     }
   },
   "additionalProperties": false

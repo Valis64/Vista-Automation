@@ -1238,6 +1238,15 @@ function processPair(pair, index) {
                 pasted.rotate(rot, true, true, true, true, Transformation.CENTER);
             }
         }
+        if (settings.mirror) {
+            writeProgress('  Mirroring artwork');
+            pasted.resize(-100, 100, true, true, true, true, 100, Transformation.CENTER);
+        }
+        var scale = (typeof settings.artworkScale === 'number') ? settings.artworkScale : 1;
+        if (scale && scale !== 1) {
+            writeProgress('  Scaling artwork to ' + Math.round(scale * 100) + '%');
+            pasted.resize(scale * 100, scale * 100, true, true, true, true, scale * 100, Transformation.CENTER);
+        }
         waitStep();
 
         writeProgress('Aligning artwork');

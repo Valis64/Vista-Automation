@@ -105,18 +105,20 @@ Pairs are aligned by index (`#1`, `#2`, etc.) so each table row corresponds to a
 
 ## 11. Template Settings
 
-Place JSON files inside `template_settings/` to define behaviors for specific templates. Each file name should match the template code and may specify a rotation angle and additional bleed path names.
+Place JSON files inside `template_settings/` to define behaviors for specific templates. Each file name should match the template code and may specify a rotation angle, additional bleed path names, whether the artwork should be mirrored, or a scale factor override.
 
 Example:
 
 ```json
 {
   "rotation": 90,
+  "mirror": true,
+  "artworkScale": 0.95,
   "bleedPaths": ["bleed1", "bleed2"]
 }
 ```
 
-The program automatically loads these files when processing a matching template.
+Existing settings files remain valid. To migrate, simply add `mirror` or `artworkScale` only to templates that require those overrides. The program automatically loads these files when processing a matching template.
 
 Open the **Template Settings** dialog from the Settings tab to create, edit or delete these JSON files directly from the GUI.
 Use the **Export** button to save all settings to a ZIP archive and **Import** to
