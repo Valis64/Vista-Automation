@@ -179,6 +179,10 @@ Omit any fields to use the defaults. When a template code matches one of these f
 
 Use **Settings → Template Settings** in the GUI to add, edit or remove these files without leaving the application. Current entries include rotation settings for `RT2052`, `RT3714`, `RT3712`, `RT3056`, `RT3055`, `TT3055`, `SL3302`, `TT3056`, `TT3075` and `RT3734`.
 
+Use the **Export** and **Import** buttons in that dialog to back up the entire
+`template_settings` folder to a ZIP archive or restore from one. Importing will
+prompt for confirmation before overwriting existing files.
+
 ## License
 
 This repository is provided without a specific license. See `AGENTS.md` for project information.

@@ -6,6 +6,7 @@ import json
 import jsonschema
 import sys
 from pathlib import Path
+import zipfile
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
@@ -83,6 +84,47 @@ def update_template_settings(code: str, updates: dict) -> None:
     save_template_settings(code, data)
 
 
+def export_template_settings(archive_path: str | Path) -> Path:
+    """Write all files from ``template_settings`` to a ZIP archive.
+
+    Returns the ``Path`` to the created archive.
+    """
+    dest = Path(archive_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file in TEMPLATE_SETTINGS_DIR.glob("*.json"):
+            zf.write(file, arcname=file.name)
+    return dest
+
+
+def import_template_settings(archive_path: str | Path, *, overwrite: bool = False) -> None:
+    """Load template settings from ``archive_path`` into ``template_settings``.
+
+    If ``overwrite`` is ``False`` and any file already exists, ``FileExistsError``
+    is raised. Files are validated against ``schema.json`` before being
+    written.
+    """
+    src = Path(archive_path)
+    if not src.exists():
+        raise FileNotFoundError(src)
+
+    TEMPLATE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(src, "r") as zf:
+        for info in zf.infolist():
+            name = Path(info.filename).name
+            if not name.endswith(".json"):
+                continue
+            dest = TEMPLATE_SETTINGS_DIR / name
+            if name != "schema.json" and dest.exists() and not overwrite:
+                raise FileExistsError(dest)
+            with zf.open(info) as f:
+                data = json.load(f)
+            if name != "schema.json":
+                validate_template_settings(data)
+            with dest.open("w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+
 def is_coffee_sleeve(template: str) -> bool:
     """Return True if the template code indicates a coffee sleeve."""
     return template.strip().upper() == "CD0434" if template else False
@@ -104,6 +146,8 @@ __all__ = [
     "load_template_settings",
     "save_template_settings",
     "update_template_settings",
+    "export_template_settings",
+    "import_template_settings",
     "validate_template_settings",
     "is_coffee_sleeve",
     "is_pb001",

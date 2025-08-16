@@ -8,6 +8,8 @@ from utils.common import (
     save_template_settings,
     update_template_settings,
     validate_template_settings,
+    export_template_settings,
+    import_template_settings,
 )
 
 class TemplateSettingsTest(unittest.TestCase):
@@ -105,6 +107,31 @@ class TemplateSettingsTest(unittest.TestCase):
                 with self.assertRaises(ValueError) as ctx:
                     validate_template_settings({})
                 self.assertIn("rotation", str(ctx.exception))
+
+    def test_export_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {"rotation": {"type": "integer"}},
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            Path(tmp, "AA0001.json").write_text(json.dumps({"rotation": 90}))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                archive = Path(tmp, "settings.zip")
+                export_template_settings(archive)
+                Path(tmp, "AA0001.json").unlink()
+                import_template_settings(archive)
+                data = load_template_settings("AA0001")
+                self.assertEqual(data["rotation"], 90)
+                Path(tmp, "AA0001.json").write_text(json.dumps({"rotation": 45}))
+                with self.assertRaises(FileExistsError):
+                    import_template_settings(archive)
+                import_template_settings(archive, overwrite=True)
+                data = load_template_settings("AA0001")
+                self.assertEqual(data["rotation"], 90)
 
 if __name__ == "__main__":
     unittest.main()
