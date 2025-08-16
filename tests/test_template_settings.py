@@ -45,6 +45,11 @@ class TemplateSettingsTest(unittest.TestCase):
         settings = load_template_settings("RT3722")
         self.assertEqual(settings.get("rotation"), 90)
 
+    def test_defaults_for_new_fields(self):
+        settings = load_template_settings("RT3055")
+        self.assertFalse(settings.get("mirror"))
+        self.assertEqual(settings.get("artworkScale"), 1)
+
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmp:
             schema = {
@@ -59,6 +64,25 @@ class TemplateSettingsTest(unittest.TestCase):
                 save_template_settings("ZZ0001", {"rotation": 45})
                 data = load_template_settings("ZZ0001")
                 self.assertEqual(data["rotation"], 45)
+
+    def test_mirror_and_scale_roundtrip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {
+                    "mirror": {"type": "boolean"},
+                    "artworkScale": {"type": "number", "minimum": 0},
+                },
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                save_template_settings("ZZ0002", {"mirror": True, "artworkScale": 0.5})
+                data = load_template_settings("ZZ0002")
+                self.assertTrue(data["mirror"])
+                self.assertEqual(data["artworkScale"], 0.5)
 
     def test_update_preserves_other_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,8 +110,14 @@ class TemplateSettingsTest(unittest.TestCase):
 
     def test_validation(self):
         self.assertTrue(validate_template_settings({"rotation": 90}))
+        self.assertTrue(validate_template_settings({"mirror": True}))
+        self.assertTrue(validate_template_settings({"artworkScale": 1.2}))
         with self.assertRaises(ValueError):
             validate_template_settings({"rotation": "90"})
+        with self.assertRaises(ValueError):
+            validate_template_settings({"mirror": "yes"})
+        with self.assertRaises(ValueError):
+            validate_template_settings({"artworkScale": -1})
         with self.assertRaises(ValueError):
             validate_template_settings({"extra": 1})
 
