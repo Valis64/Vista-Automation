@@ -6,6 +6,7 @@ from unittest.mock import patch
 from utils.common import (
     load_template_settings,
     save_template_settings,
+    update_template_settings,
     validate_template_settings,
 )
 
@@ -56,6 +57,30 @@ class TemplateSettingsTest(unittest.TestCase):
                 save_template_settings("ZZ0001", {"rotation": 45})
                 data = load_template_settings("ZZ0001")
                 self.assertEqual(data["rotation"], 45)
+
+    def test_update_preserves_other_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {
+                    "rotation": {"type": "integer"},
+                    "bleedPaths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            existing = {"rotation": 90, "bleedPaths": ["A", "B"]}
+            Path(tmp, "ZZ0001.json").write_text(json.dumps(existing))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                update_template_settings("ZZ0001", {"rotation": 180})
+                data = load_template_settings("ZZ0001")
+                self.assertEqual(data["rotation"], 180)
+                self.assertEqual(data["bleedPaths"], ["A", "B"])
 
     def test_validation(self):
         self.assertTrue(validate_template_settings({"rotation": 90}))
