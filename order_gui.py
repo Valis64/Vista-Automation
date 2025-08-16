@@ -1489,7 +1489,8 @@ class App:
             scale_var.set(str(data.get("artworkScale", "")))
             unsaved["flag"] = False
             update_state()
-            tree.tag_remove("unsaved", code)
+            tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
+            tree.item(code, tags=tags)
 
         tree.bind("<<TreeviewSelect>>", load_selected)
 
@@ -1528,7 +1529,10 @@ class App:
             if not sel:
                 return
             unsaved["flag"] = True
-            tree.tag_add("unsaved", sel[0])
+            item_id = sel[0]
+            tags = tree.item(item_id, "tags")
+            if "unsaved" not in tags:
+                tree.item(item_id, tags=tags + ("unsaved",))
             update_state()
 
         rotation_var.trace_add("write", mark_unsaved)
@@ -1571,7 +1575,8 @@ class App:
                 win.after(2000, lambda: status_var.set(""))
                 unsaved["flag"] = False
                 update_state()
-                tree.tag_remove("unsaved", code)
+                tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
+                tree.item(code, tags=tags)
             except Exception as exc:
                 messagebox.showerror("Error", str(exc))
 
