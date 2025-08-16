@@ -753,6 +753,8 @@ def populate_pairs(
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
+        # Expose template settings editor to other windows
+        root.open_template_settings_editor = self.open_template_settings_editor
         root.title("Illustrator Automation")
         try:
             fonts = [
@@ -1422,8 +1424,11 @@ class App:
                 text.insert(tk.END, f"    {name}: {reason}\n")
         text.config(state="disabled")
 
-    def open_template_settings_editor(self):
-        """Open a dialog for editing template settings JSON files."""
+    def open_template_settings_editor(self, code: str | None = None):
+        """Open a dialog for editing template settings JSON files.
+
+        If ``code`` is provided, ensure an entry exists and select it for editing.
+        """
         win = tk.Toplevel(self.root)
         win.title("Template Settings")
 
@@ -1577,6 +1582,18 @@ class App:
 
         tree.tag_configure("unsaved", background="#fff3cd")
         refresh_table()
+        if code:
+            code = code.strip().upper()
+            path = TEMPLATE_SETTINGS_DIR / f"{code}.json"
+            if not path.exists():
+                try:
+                    save_template_settings(code, {})
+                    refresh_table()
+                except Exception as exc:
+                    messagebox.showerror("Error", str(exc))
+            if path.exists():
+                tree.selection_set(code)
+                load_selected()
 
     def save_settings(self):
         data = {
