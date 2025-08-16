@@ -105,7 +105,9 @@ Pairs are aligned by index (`#1`, `#2`, etc.) so each table row corresponds to a
 
 ## 11. Template Settings
 
-Place JSON files inside `template_settings/` to define behaviors for specific templates. Each file name should match the template code and may specify a rotation angle, additional bleed path names, whether the artwork should be mirrored, or a scale factor override.
+Place JSON files inside `template_settings/` to define behaviors for specific templates. Each file name should match the
+template code and may specify a rotation angle, additional bleed path names, whether the artwork should be mirrored, or a scale
+factor override.
 
 Example:
 
@@ -118,11 +120,19 @@ Example:
 }
 ```
 
-Existing settings files remain valid. To migrate, simply add `mirror` or `artworkScale` only to templates that require those overrides. The program automatically loads these files when processing a matching template.
+- **rotation** – rotates the artwork on the template by the given degrees.
+- **bleedPaths** – additional path names to treat as bleed when exporting.
+- **mirror** – flips the artwork horizontally before placement.
+- **artworkScale** – scales the artwork by this factor.
 
-Open the **Template Settings** dialog from the Settings tab to create, edit or delete these JSON files directly from the GUI.
-Use the **Export** button to save all settings to a ZIP archive and **Import** to
-restore them. Importing asks for confirmation before overwriting existing files.
+Existing settings files remain valid. To migrate, simply add `mirror` or `artworkScale` only to templates that require those
+overrides. The program automatically loads these files when processing a matching template.
+
+Open the **Template Settings** dialog from the Settings tab to manage these files. The **Add** button launches a dialog asking
+for the template code, rotation value, comma-separated bleed paths, a **Mirror** toggle and an artwork scale. For instance,
+entering `90` for rotation, `bleed1, bleed2` for bleed paths and checking **Mirror** will rotate, include the listed paths and
+flip the artwork during processing. Use the **Export** button to save all settings to a ZIP archive and **Import** to restore
+them. Importing asks for confirmation before overwriting existing files.
 
 ## 12. Additional Notes
 

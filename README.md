@@ -166,18 +166,32 @@ See `template_creator.jsx` for the implementation. The top of the file explains 
 
 ## Template Settings
 
-Template-specific behaviors such as rotation or additional bleed paths are configured with JSON files in the `template_settings` folder.
-This folder acts as a library of special settings for every template. Each file is named after the template code (for example `PB001.json`) and follows this schema:
+Template-specific behaviors such as rotation or additional bleed paths are configured with JSON files in the `template_settings`
+folder. This folder acts as a library of special settings for every template. Each file is named after the template code (for
+example `PB001.json`) and may define the following fields:
+
 ```json
 {
   "rotation": 90,
-  "bleedPaths": ["bleed1", "bleed2"]
+  "bleedPaths": ["bleed1", "bleed2"],
+  "mirror": true,
+  "artworkScale": 0.95
 }
 ```
 
-Omit any fields to use the defaults. When a template code matches one of these files, the GUI and Illustrator script automatically apply the settings during processing.
+- **rotation** – rotates the placed artwork by the given degrees.
+- **bleedPaths** – comma‑separated path names treated as bleed during export.
+- **mirror** – when `true`, flips the artwork horizontally before placement.
+- **artworkScale** – scales the artwork by this factor (1 leaves it unchanged).
 
-Use **Settings → Template Settings** in the GUI to add, edit or remove these files without leaving the application. Current entries include rotation settings for `RT2052`, `RT3714`, `RT3712`, `RT3056`, `RT3055`, `TT3055`, `SL3302`, `TT3056`, `TT3075` and `RT3734`.
+The GUI and Illustrator script automatically apply these settings whenever a template code matches one of the JSON files. Omit
+any field to use the defaults.
+
+Use **Settings → Template Settings** in the GUI to manage these files. Clicking **Add** opens a dialog that prompts for a
+template code, rotation value, bleed path list, a **Mirror** checkbox and an artwork scale. For example, entering a rotation of
+`90`, bleed paths `bleed1, bleed2`, enabling **Mirror** and setting scale to `0.95` will rotate, mirror and shrink artwork when
+that template is processed. Current entries include rotation settings for `RT2052`, `RT3714`, `RT3712`, `RT3056`, `RT3055`,
+`TT3055`, `SL3302`, `TT3056`, `TT3075` and `RT3734`.
 
 Use the **Export** and **Import** buttons in that dialog to back up the entire
 `template_settings` folder to a ZIP archive or restore from one. Importing will
