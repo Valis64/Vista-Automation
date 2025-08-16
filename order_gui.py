@@ -1540,14 +1540,72 @@ class App:
                 messagebox.showerror("Error", str(exc))
 
         def add_new():
-            code = simpledialog.askstring("New Template", "Template code:")
-            if not code:
+            class NewTemplateDialog(simpledialog.Dialog):
+                def body(self, master):
+                    tk.Label(master, text="Template code:").grid(row=0, column=0, sticky="e")
+                    self.code_var = tk.StringVar()
+                    code_entry = tk.Entry(master, textvariable=self.code_var)
+                    code_entry.grid(row=0, column=1, sticky="we")
+
+                    tk.Label(master, text="Rotation:").grid(row=1, column=0, sticky="e")
+                    self.rotation_var = tk.StringVar(value="0")
+                    tk.Entry(master, textvariable=self.rotation_var).grid(row=1, column=1, sticky="we")
+
+                    tk.Label(master, text="Bleed paths:").grid(row=2, column=0, sticky="e")
+                    self.bleed_var = tk.StringVar()
+                    tk.Entry(master, textvariable=self.bleed_var).grid(row=2, column=1, sticky="we")
+
+                    self.mirror_var = tk.BooleanVar(value=False)
+                    tk.Checkbutton(master, text="Mirror", variable=self.mirror_var).grid(row=3, column=1, sticky="w")
+
+                    tk.Label(master, text="Artwork scale:").grid(row=4, column=0, sticky="e")
+                    self.scale_var = tk.StringVar(value="1")
+                    tk.Entry(master, textvariable=self.scale_var).grid(row=4, column=1, sticky="we")
+
+                    return code_entry
+
+                def validate(self):
+                    code = self.code_var.get().strip().upper()
+                    if not code:
+                        messagebox.showerror("Error", "Template code is required", parent=self)
+                        return False
+                    try:
+                        rotation = int(self.rotation_var.get().strip() or "0")
+                    except ValueError:
+                        messagebox.showerror("Error", "Rotation must be an integer", parent=self)
+                        return False
+                    try:
+                        scale = float(self.scale_var.get().strip() or "1")
+                        if scale < 0:
+                            raise ValueError
+                    except ValueError:
+                        messagebox.showerror("Error", "Scale must be a non-negative number", parent=self)
+                        return False
+                    bleed = [p.strip() for p in re.split(r"[,\s]+", self.bleed_var.get()) if p.strip()]
+                    self.result = {
+                        "code": code,
+                        "rotation": rotation,
+                        "bleedPaths": bleed,
+                        "mirror": self.mirror_var.get(),
+                        "artworkScale": scale,
+                    }
+                    return True
+
+                def apply(self):
+                    pass
+
+            dialog = NewTemplateDialog(win)
+            if not getattr(dialog, "result", None):
                 return
-            code = code.strip().upper()
-            if not code:
-                return
+            code = dialog.result["code"]
+            data = {
+                "rotation": dialog.result["rotation"],
+                "bleedPaths": dialog.result["bleedPaths"],
+                "mirror": dialog.result["mirror"],
+                "artworkScale": dialog.result["artworkScale"],
+            }
             try:
-                save_template_settings(code, {})
+                save_template_settings(code, data)
             except Exception as exc:
                 messagebox.showerror("Error", str(exc))
                 return
