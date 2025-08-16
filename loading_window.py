@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import scrolledtext, ttk, messagebox
 import tkinter.font as tkfont
 from pathlib import Path
 import json
@@ -57,6 +57,9 @@ class LoadingWindow:
         if width and height:
             self.window.geometry(f"{width}x{height}")
         self.window.resizable(False, False)
+
+        # Track templates without settings already prompted to avoid repeats
+        self.missing_settings: set[str] = set()
 
         style = ttk.Style(self.window)
         style.configure("LargePB.Horizontal.TProgressbar", thickness=20, troughcolor="#eee")
@@ -330,6 +333,26 @@ class LoadingWindow:
             specials = []
             tmpl_code = self.items[pair_idx].get("template", "")
             settings = load_template_settings(tmpl_code)
+            if not settings and tmpl_code and tmpl_code not in self.missing_settings:
+                self.missing_settings.add(tmpl_code)
+                if messagebox.askyesno(
+                    "Missing Template Settings",
+                    f"No settings found for {tmpl_code}. Create now?",
+                    parent=self.window,
+                ):
+                    self._append(
+                        self.log_box,
+                        f"Opened template settings editor for {tmpl_code}",
+                    )
+                    try:
+                        self.parent.open_template_settings_editor(tmpl_code)
+                    except Exception as exc:
+                        messagebox.showerror("Error", str(exc), parent=self.window)
+                else:
+                    self._append(
+                        self.log_box,
+                        f"Skipped creating settings for {tmpl_code}",
+                    )
             self.setting_disp_var.set(tmpl_code)
             color = "#FF00FF" if settings else "#00FF00"
             self.setting_entry.config(
