@@ -1427,74 +1427,108 @@ class App:
         win = tk.Toplevel(self.root)
         win.title("Template Settings")
 
-        list_frame = tk.Frame(win)
-        list_frame.pack(side="left", fill="y", padx=5, pady=5)
-        edit_frame = tk.Frame(win)
-        edit_frame.pack(side="right", fill="both", expand=True, padx=5, pady=5)
-
-        codes = []
-        def refresh_list():
-            codes.clear()
-            self.ts_list.delete(0, tk.END)
-            for f in sorted(TEMPLATE_SETTINGS_DIR.glob("*.json")):
-                if f.name == "schema.json":
-                    continue
-                codes.append(f.stem)
-                self.ts_list.insert(tk.END, f.stem)
-
-        self.ts_list = tk.Listbox(list_frame, height=15)
-        self.ts_list.pack(fill="y", expand=True)
+        table_frame = tk.Frame(win)
+        table_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        columns = ("code", "rotation", "bleed")
+        tree = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+        tree.pack(side="left", fill="both", expand=True)
+        for col in columns:
+            tree.heading(col, text=col.title())
+            width = 120 if col != "bleed" else 240
+            tree.column(col, width=width, anchor="w")
+        scroll = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="left", fill="y")
 
         rotation_var = tk.StringVar()
         bleed_var = tk.StringVar()
         status_var = tk.StringVar()
+        unsaved = {"flag": False}
+
+        def refresh_table():
+            tree.delete(*tree.get_children())
+            for f in sorted(TEMPLATE_SETTINGS_DIR.glob("*.json")):
+                if f.name == "schema.json":
+                    continue
+                code = f.stem
+                data = load_template_settings(code)
+                rot = data.get("rotation", "")
+                bleed = ", ".join(data.get("bleedPaths", []))
+                tree.insert("", "end", iid=code, values=(code, rot, bleed))
 
         def load_selected(event=None):
-            sel = self.ts_list.curselection()
+            sel = tree.selection()
             if not sel:
                 return
-            code = codes[sel[0]]
+            code = sel[0]
             data = load_template_settings(code)
             rotation_var.set(str(data.get("rotation", "")))
             bleed_var.set(", ".join(data.get("bleedPaths", [])))
+            unsaved["flag"] = False
+            update_state()
+            tree.tag_remove("unsaved", code)
 
-        self.ts_list.bind("<<ListboxSelect>>", load_selected)
+        tree.bind("<<TreeviewSelect>>", load_selected)
 
+        edit_frame = tk.Frame(win)
+        edit_frame.pack(fill="x", padx=5, pady=5)
         tk.Label(edit_frame, text="Rotation").grid(row=0, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
-
         edit_frame.grid_columnconfigure(1, weight=1)
 
-        def save():
-            sel = self.ts_list.curselection()
+        def validate() -> bool:
+            rot = rotation_var.get().strip()
+            bleed = bleed_var.get().strip()
+            if not rot or not bleed:
+                return False
+            try:
+                int(rot)
+            except ValueError:
+                return False
+            return True
+
+        def mark_unsaved(*_):
+            sel = tree.selection()
             if not sel:
                 return
-            idx = sel[0]
-            code = codes[idx]
+            unsaved["flag"] = True
+            tree.tag_add("unsaved", sel[0])
+            update_state()
+
+        rotation_var.trace_add("write", mark_unsaved)
+        bleed_var.trace_add("write", mark_unsaved)
+
+        def update_state():
+            if unsaved["flag"] and validate():
+                save_btn.config(state="normal")
+            else:
+                save_btn.config(state="disabled")
+
+        def save():
+            sel = tree.selection()
+            if not sel:
+                return
+            code = sel[0]
             updates: dict[str, object] = {}
             rot_text = rotation_var.get().strip()
-            if rot_text:
-                try:
-                    updates["rotation"] = int(rot_text)
-                except ValueError:
-                    messagebox.showerror("Error", "Rotation must be an integer")
-                    return
-            else:
-                updates["rotation"] = None
+            updates["rotation"] = int(rot_text)
             paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
-            if paths:
-                updates["bleedPaths"] = paths
-            else:
-                updates["bleedPaths"] = None
+            updates["bleedPaths"] = paths
             try:
                 update_template_settings(code, updates)
-                refresh_list()
-                self.ts_list.selection_set(idx)
-                load_selected()
+                tree.item(code, values=(code, updates["rotation"], ", ".join(paths)))
                 status_var.set("Saved")
                 win.after(2000, lambda: status_var.set(""))
+                unsaved["flag"] = False
+                update_state()
+                tree.tag_remove("unsaved", code)
             except Exception as exc:
                 messagebox.showerror("Error", str(exc))
 
@@ -1510,37 +1544,39 @@ class App:
             except Exception as exc:
                 messagebox.showerror("Error", str(exc))
                 return
-            refresh_list()
-            idx = codes.index(code) if code in codes else 0
-            self.ts_list.selection_clear(0, tk.END)
-            self.ts_list.selection_set(idx)
+            refresh_table()
+            tree.selection_set(code)
             load_selected()
 
         def delete_selected():
-            sel = self.ts_list.curselection()
+            sel = tree.selection()
             if not sel:
                 return
-            code = codes[sel[0]]
+            code = sel[0]
             path = TEMPLATE_SETTINGS_DIR / f"{code}.json"
             if messagebox.askyesno("Delete", f"Delete settings for {code}?"):
                 try:
                     path.unlink(missing_ok=True)
-                    refresh_list()
+                    refresh_table()
                     rotation_var.set("")
                     bleed_var.set("")
+                    unsaved["flag"] = False
+                    update_state()
                 except Exception as exc:
                     messagebox.showerror("Error", str(exc))
 
         btn_frame = tk.Frame(edit_frame)
         btn_frame.grid(row=2, column=0, columnspan=2, pady=5)
-        tk.Button(btn_frame, text="Save", command=save).pack(side="left", padx=2)
+        save_btn = tk.Button(btn_frame, text="Save", state="disabled", command=save)
+        save_btn.pack(side="left", padx=2)
         tk.Button(btn_frame, text="Add", command=add_new).pack(side="left", padx=2)
         tk.Button(btn_frame, text="Delete", command=delete_selected).pack(side="left", padx=2)
         tk.Label(edit_frame, textvariable=status_var, fg="green").grid(
             row=3, column=0, columnspan=2, sticky="w"
         )
 
-        refresh_list()
+        tree.tag_configure("unsaved", background="#fff3cd")
+        refresh_table()
 
     def save_settings(self):
         data = {
