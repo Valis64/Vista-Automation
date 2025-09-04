@@ -1,0 +1,4 @@
+{
+  "rotation": 180,
+  "bleedPaths": ["bleed1", "bleed2"]
+}
