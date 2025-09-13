@@ -1434,6 +1434,17 @@ class App:
         win = tk.Toplevel(self.root)
         win.title("Template Settings")
 
+        search_var = tk.StringVar()
+        search_frame = tk.Frame(win)
+        search_frame.pack(fill="x", padx=5, pady=(5, 0))
+        tk.Label(search_frame, text="Search").pack(side="left")
+        tk.Entry(search_frame, textvariable=search_var).pack(
+            side="left", fill="x", expand=True, padx=5
+        )
+        tk.Button(search_frame, text="Clear", command=lambda: search_var.set("")).pack(
+            side="left"
+        )
+
         table_frame = tk.Frame(win)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
         columns = ("code", "rotation", "bleed", "mirror", "artworkScale")
@@ -1459,12 +1470,16 @@ class App:
         status_var = tk.StringVar()
         unsaved = {"flag": False}
 
-        def refresh_table():
+        def refresh_table(*_):
+            sel = tree.selection()
             tree.delete(*tree.get_children())
+            term = search_var.get().strip().upper()
             for f in sorted(TEMPLATE_SETTINGS_DIR.glob("*.json")):
                 if f.name == "schema.json":
                     continue
                 code = f.stem
+                if term and term not in code.upper():
+                    continue
                 data = load_template_settings(code)
                 rot = data.get("rotation", "")
                 bleed = ", ".join(data.get("bleedPaths", []))
@@ -1476,6 +1491,11 @@ class App:
                     iid=code,
                     values=(code, rot, bleed, mirror, scale),
                 )
+            if sel and sel[0] in tree.get_children():
+                tree.selection_set(sel[0])
+                load_selected()
+
+        search_var.trace_add("write", refresh_table)
 
         def load_selected(event=None):
             sel = tree.selection()
