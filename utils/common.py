@@ -45,6 +45,12 @@ def load_template_settings(code: str, *, defaults: bool = True) -> dict:
     try:
         with path.open("r", encoding="utf-8") as f:
             data = json.load(f)
+        for key, caster in (("rotation", int), ("artworkScale", float)):
+            if key in data and isinstance(data[key], str):
+                try:
+                    data[key] = caster(data[key])
+                except ValueError:
+                    pass
         validate_template_settings(data)
         if defaults:
             data = dict(data)

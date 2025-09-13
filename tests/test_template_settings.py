@@ -108,6 +108,27 @@ class TemplateSettingsTest(unittest.TestCase):
                 self.assertEqual(data["rotation"], 180)
                 self.assertEqual(data["bleedPaths"], ["A", "B"])
 
+    def test_load_coerces_numeric_strings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {
+                    "rotation": {"type": "integer"},
+                    "artworkScale": {"type": "number", "minimum": 0},
+                },
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            Path(tmp, "AA0002.json").write_text(
+                json.dumps({"rotation": "270", "artworkScale": "1.5"})
+            )
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                data = load_template_settings("AA0002")
+                self.assertEqual(data["rotation"], 270)
+                self.assertEqual(data["artworkScale"], 1.5)
+
     def test_validation(self):
         self.assertTrue(validate_template_settings({"rotation": 90}))
         self.assertTrue(validate_template_settings({"mirror": True}))
