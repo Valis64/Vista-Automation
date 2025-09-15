@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: bump-version
+        name: Bump VERSION patch when source files change
+        entry: python3 tools/bump_version.py
+        language: system
+        pass_filenames: false
+        always_run: true
