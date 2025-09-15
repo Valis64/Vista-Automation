@@ -821,24 +821,43 @@ function collectBleedPaths(doc, colorFn) {
 }
 
 function findBleedPath(doc, colorFn, createLayer) {
-    var bleedGroup;
-    if (createLayer) {
-        var bleedLayer = doc.layers.add();
-        bleedLayer.name = 'Bleed_Layer';
-        bleedGroup = bleedLayer.groupItems.add();
-    } else {
-        bleedGroup = doc.groupItems.add();
-    }
-
     var tries = [1, 3, 5];
     var paths = [];
     for (var t = 0; t < tries.length && paths.length === 0; t++) {
         paths = collectBleedPaths(doc, function(c){ return colorFn(c, tries[t]); });
     }
 
-    for (var i = 0; i < paths.length; i++) {
-        paths[i].move(bleedGroup, ElementPlacement.PLACEATEND);
+    if (paths.length === 0) alertAndExit('Bleed paths not found.');
+
+    var targetLayer = null;
+    if (createLayer) {
+        targetLayer = doc.layers.add();
+        targetLayer.name = 'Bleed_Layer';
     }
+
+    doc.activate();
+    doc.selection = null;
+    doc.selection = paths;
+    app.executeMenuCommand('group');
+
+    if (!doc.selection || doc.selection.length === 0) {
+        alertAndExit('Failed to isolate bleed paths.');
+    }
+
+    var bleedGroup = doc.selection[0];
+
+    if (bleedGroup.typename !== 'GroupItem') {
+        var dest = targetLayer ? targetLayer.groupItems.add() : doc.groupItems.add();
+        var sel = doc.selection;
+        for (var s = sel.length - 1; s >= 0; s--) {
+            sel[s].move(dest, ElementPlacement.PLACEATEND);
+        }
+        bleedGroup = dest;
+    } else if (targetLayer) {
+        bleedGroup.move(targetLayer, ElementPlacement.PLACEATEND);
+    }
+
+    doc.selection = null;
 
     if (bleedGroup.pageItems.length === 0) alertAndExit('Bleed paths not found.');
     return bleedGroup;
@@ -846,16 +865,36 @@ function findBleedPath(doc, colorFn, createLayer) {
 
 function findTopBleedPath(doc, createLayer) {
     if (doc.pathItems.length === 0) alertAndExit('Bleed paths not found.');
-    var bleedGroup;
-    if (createLayer) {
-        var bleedLayer = doc.layers.add();
-        bleedLayer.name = 'Bleed_Layer';
-        bleedGroup = bleedLayer.groupItems.add();
-    } else {
-        bleedGroup = doc.groupItems.add();
-    }
     var p = doc.pathItems[doc.pathItems.length - 1];
-    p.move(bleedGroup, ElementPlacement.PLACEATEND);
+    var targetLayer = null;
+    if (createLayer) {
+        targetLayer = doc.layers.add();
+        targetLayer.name = 'Bleed_Layer';
+    }
+
+    doc.activate();
+    doc.selection = null;
+    doc.selection = [p];
+    app.executeMenuCommand('group');
+
+    if (!doc.selection || doc.selection.length === 0) {
+        alertAndExit('Failed to isolate bleed path.');
+    }
+
+    var bleedGroup = doc.selection[0];
+
+    if (bleedGroup.typename !== 'GroupItem') {
+        var dest = targetLayer ? targetLayer.groupItems.add() : doc.groupItems.add();
+        var sel = doc.selection;
+        for (var s = sel.length - 1; s >= 0; s--) {
+            sel[s].move(dest, ElementPlacement.PLACEATEND);
+        }
+        bleedGroup = dest;
+    } else if (targetLayer) {
+        bleedGroup.move(targetLayer, ElementPlacement.PLACEATEND);
+    }
+
+    doc.selection = null;
     return bleedGroup;
 }
 
