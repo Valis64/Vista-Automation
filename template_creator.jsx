@@ -971,20 +971,21 @@ function createClippingGroup(doc, bleedGroup) {
         }
     }
 
-    for (var s = 0; s < doc.pageItems.length; s++) {
-        doc.pageItems[s].selected = true;
+    doc.activate();
+    doc.selection = null;
+    app.executeMenuCommand('selectall');
+    app.executeMenuCommand('group');
+
+    if (!doc.selection || doc.selection.length === 0) {
+        alertAndExit('Failed to create clipping group');
     }
 
-    var grp = doc.groupItems.add();
-    var sel = doc.selection;
-    for (var i = sel.length - 1; i >= 0; i--) {
-        sel[i].move(grp, ElementPlacement.PLACEATEND);
-    }
+    var grp = doc.selection[0];
 
     mask.move(grp, ElementPlacement.PLACEATBEGINNING);
     mask.clipping = true;
     grp.clipped = true;
-    grp.selected = true;
+    doc.selection = null;
     // Return the grouped artwork so it can be duplicated into the template
     return grp;
 }
