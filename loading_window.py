@@ -60,6 +60,11 @@ class LoadingWindow:
 
         # Track templates without settings already prompted to avoid repeats
         self.missing_settings: set[str] = set()
+        self.pair_rows: dict[int, str] = {}
+        self.pair_row_labels: dict[int, str] = {}
+        self.pair_row_display: dict[int, str] = {}
+        self.pair_row_papers: dict[int, str] = {}
+        self.completed_pairs: set[int] = set()
 
         style = ttk.Style(self.window)
         style.configure("LargePB.Horizontal.TProgressbar", thickness=20, troughcolor="#eee")
@@ -105,6 +110,49 @@ class LoadingWindow:
             entry.pack()
             if attr:
                 setattr(self, attr, entry)
+
+        orders_frame = ttk.Frame(self.window)
+        orders_frame.pack(padx=20, pady=(0, 10), fill="both")
+        orders_frame.columnconfigure(0, weight=1)
+        orders_frame.rowconfigure(0, weight=1)
+
+        tree_height = min(5, max(len(self.pair_orders), 1))
+        self.orders_tree = ttk.Treeview(
+            orders_frame,
+            columns=("pair", "paper"),
+            show="headings",
+            height=tree_height,
+            selectmode="browse",
+        )
+        self.orders_tree.heading("pair", text="Pair", anchor="center")
+        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
+        self.orders_tree.column("pair", anchor="center", width=200, stretch=True)
+        self.orders_tree.column("paper", anchor="center", width=140, stretch=True)
+        self.orders_tree.grid(row=0, column=0, sticky="nsew")
+
+        orders_scroll = ttk.Scrollbar(orders_frame, orient="vertical", command=self.orders_tree.yview)
+        orders_scroll.grid(row=0, column=1, sticky="ns")
+        self.orders_tree.configure(yscrollcommand=orders_scroll.set)
+
+        done_font = None
+        try:
+            done_font = tkfont.nametofont("TkDefaultFont").copy()
+            done_font.configure(overstrike=1)
+        except Exception:
+            done_font = None
+        self._tree_done_font = done_font
+        done_tag_style: dict[str, object] = {"foreground": "#228B22"}
+        if done_font is not None:
+            done_tag_style["font"] = done_font
+        self.orders_tree.tag_configure("done", **done_tag_style)
+
+        for idx, order_id in enumerate(self.pair_orders):
+            pair_label = f"{idx + 1}. {order_id}"
+            iid = self.orders_tree.insert("", "end", values=(pair_label, ""))
+            self.pair_rows[idx] = iid
+            self.pair_row_labels[idx] = pair_label
+            self.pair_row_display[idx] = pair_label
+            self.pair_row_papers[idx] = ""
 
         logs_frame = ttk.Frame(self.window)
         logs_frame.pack(padx=20, pady=(0, 10), fill="both", expand=True)
@@ -293,6 +341,60 @@ class LoadingWindow:
         if self.verbose_autoscroll.get():
             self.verbose_log.see(tk.END)
 
+    def _mark_pair_complete(self, pair_idx: int) -> None:
+        iid = self.pair_rows.get(pair_idx)
+        if iid is None:
+            return
+        if pair_idx in self.completed_pairs and self.pair_row_display.get(pair_idx, "").endswith("✓"):
+            tags = list(self.orders_tree.item(iid, "tags") or ())
+            if "done" not in tags:
+                tags.append("done")
+                self.orders_tree.item(iid, tags=tags)
+            return
+        base_text = self.pair_row_labels.get(pair_idx)
+        if base_text is None:
+            values = self.orders_tree.item(iid, "values")
+            base_text = values[0] if values else ""
+            self.pair_row_labels[pair_idx] = base_text
+        display_text = self.pair_row_display.get(pair_idx, base_text or "")
+        if not display_text.endswith("✓"):
+            display_text = f"{base_text or ''} ✓"
+        paper = self.pair_row_papers.get(pair_idx)
+        if paper is None:
+            values = self.orders_tree.item(iid, "values")
+            paper = values[1] if len(values) > 1 else ""
+            self.pair_row_papers[pair_idx] = paper
+        tags = list(self.orders_tree.item(iid, "tags") or ())
+        if "done" not in tags:
+            tags.append("done")
+        self.orders_tree.item(iid, values=(display_text, paper), tags=tags)
+        self.pair_row_display[pair_idx] = display_text
+        self.completed_pairs.add(pair_idx)
+
+    @staticmethod
+    def _paper_from_path(path: str) -> str:
+        if not path:
+            return ""
+        cleaned = path.strip().strip("\"'")
+        match = re.search(r"(\d+in)", cleaned.lower())
+        return match.group(1) if match else ""
+
+    def _update_pair_paper(self, pair_idx: int, paper: str) -> None:
+        paper = (paper or "").strip()
+        if not paper:
+            return
+        iid = self.pair_rows.get(pair_idx)
+        if iid is None:
+            return
+        current_tags = self.orders_tree.item(iid, "tags") or ()
+        display_text = self.pair_row_display.get(pair_idx)
+        if display_text is None:
+            values = self.orders_tree.item(iid, "values")
+            display_text = values[0] if values else ""
+            self.pair_row_display[pair_idx] = display_text
+        self.orders_tree.item(iid, values=(display_text, paper), tags=current_tags)
+        self.pair_row_papers[pair_idx] = paper
+
     def update_timers(self):
         if self.start_time is not None:
             elapsed = time.time() - self.start_time
@@ -351,6 +453,8 @@ class LoadingWindow:
                 self.order_disp_var.set(self.pair_orders[pair_idx])
                 self.pair_disp_var.set(f"{pair_idx + 1} / {total}")
                 self.company_disp_var.set(self.items[pair_idx].get("company", ""))
+                if "finished" in low_msg:
+                    self._mark_pair_complete(pair_idx)
         prefix = ""
         if 0 <= self.current_pair < len(self.pair_orders):
             prefix = f"Order {self.pair_orders[self.current_pair]} - "
@@ -369,6 +473,11 @@ class LoadingWindow:
         self.status_var.set(prefix + msg)
 
         lower = msg.lower()
+        stripped = msg.strip()
+        if stripped.lower().startswith("saved ") and 0 <= self.current_pair < len(self.pair_orders):
+            paper = self._paper_from_path(stripped[6:])
+            if paper:
+                self._update_pair_paper(self.current_pair, paper)
         auto_kwargs = {"auto_scroll": self.verbose_autoscroll.get()}
         self._append(self.log_box)
         if msg.startswith("  "):
