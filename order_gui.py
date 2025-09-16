@@ -802,6 +802,10 @@ class App:
         self.sample_copy_info: list[tuple[str, str]] = []
         self.run_start_time: float | None = None
         self.total_time_var = tk.StringVar(value="Total time: 0s")
+        self.pairs_window: tk.Toplevel | None = None
+        self.pairs_tree: ttk.Treeview | None = None
+        self._pair_row_map: dict[str, int] = {}
+        self._pair_index_to_iid: dict[int, str] = {}
 
         container = tk.Frame(root)
         container.pack(fill="both", expand=True)
@@ -898,6 +902,7 @@ class App:
 
         edit_menu = tk.Menu(menubar, tearoff=0)
         edit_menu.add_command(label="Settings", command=lambda: self.nb.select(self.settings_tab))
+        edit_menu.add_command(label="Pairs & Paper Types", command=self.show_pairs_window)
         menubar.add_cascade(label="Edit", menu=edit_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -1033,6 +1038,11 @@ class App:
         tk.Button(ctrl_frame, text="Save JSON", command=self.save_json).pack(side="left")
         tk.Button(ctrl_frame, text="Save HTML", command=self.save_html).pack(side="left")
         tk.Button(ctrl_frame, text="Run Illustrator", command=self.run_illustrator).pack(side="left")
+        tk.Button(
+            ctrl_frame,
+            text="Pairs & Paper Types",
+            command=self.show_pairs_window,
+        ).pack(side="left")
         tk.Button(ctrl_frame, text="Exit", command=self.on_exit).pack(side="left")
         ctrl_frame.pack(pady=5)
         tk.Label(pair_frame, textvariable=self.total_time_var).pack(pady=(0, 5))
@@ -1828,6 +1838,161 @@ class App:
             finally:
                 self._ignore_table_event = False
 
+    def _pairs_window_exists(self) -> bool:
+        return bool(self.pairs_window) and bool(self.pairs_window.winfo_exists())
+
+    def _get_pairs_and_items(self) -> tuple[list[dict], list[dict]]:
+        pairs = self.batch_pairs if self.batch_pairs else self.pairs
+        items = self.batch_items if self.batch_items else self.items
+        return pairs, items
+
+    def show_pairs_window(self):
+        if self._pairs_window_exists():
+            try:
+                self.pairs_window.deiconify()
+                self.pairs_window.lift()
+                self.pairs_window.focus_force()
+            except Exception:
+                pass
+            self.refresh_pairs_window()
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("Pairs & Paper Types")
+        self.pairs_window = win
+
+        container = ttk.Frame(win, padding=10)
+        container.pack(fill="both", expand=True)
+
+        ttk.Label(container, text="Pairs & Paper Types").pack(anchor="center", pady=(0, 5))
+
+        tree_frame = ttk.Frame(container)
+        tree_frame.pack(fill="both", expand=True)
+
+        self.pairs_tree = ttk.Treeview(
+            tree_frame,
+            columns=("pair", "paper"),
+            show="headings",
+            height=5,
+            selectmode="browse",
+        )
+        self.pairs_tree.heading("pair", text="Pair", anchor="center")
+        self.pairs_tree.heading("paper", text="Paper Type", anchor="center")
+        self.pairs_tree.column("pair", anchor="center", width=260, stretch=True)
+        self.pairs_tree.column("paper", anchor="center", width=200, stretch=True)
+        self.pairs_tree.pack(side="left", fill="both", expand=True)
+
+        scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.pairs_tree.yview)
+        scroll.pack(side="right", fill="y")
+        self.pairs_tree.configure(yscrollcommand=scroll.set)
+
+        ttk.Label(
+            container,
+            text="Double-click or press Enter to update the selected paper type.",
+            wraplength=360,
+        ).pack(anchor="w", pady=(5, 0))
+
+        self.pairs_tree.bind("<Double-1>", self._prompt_pairs_window_paper)
+        self.pairs_tree.bind("<Return>", self._prompt_pairs_window_paper)
+        self.pairs_tree.bind("<KP_Enter>", self._prompt_pairs_window_paper)
+        win.bind(
+            "<Destroy>",
+            lambda event: self._on_pairs_window_destroy(event) if event.widget is win else None,
+        )
+
+        self.refresh_pairs_window()
+
+    def refresh_pairs_window(self):
+        if not self._pairs_window_exists():
+            return
+        tree = self.pairs_tree
+        if tree is None:
+            return
+
+        pairs, items = self._get_pairs_and_items()
+        tree.delete(*tree.get_children())
+        self._pair_row_map.clear()
+        self._pair_index_to_iid.clear()
+
+        tree.config(height=min(10, max(len(pairs), 1)))
+
+        for idx, pair in enumerate(pairs):
+            order_id = str(pair.get("order_id", "") or "").strip()
+            if idx < len(items) and not order_id:
+                order_id = str(items[idx].get("order_id", "") or "").strip()
+            label = f"{idx + 1}. {order_id or 'N/A'}"
+            paper = str(pair.get("paperType", "") or "").strip()
+            if not paper and idx < len(items):
+                paper = str(items[idx].get("paperType", "") or "").strip()
+            iid = tree.insert("", "end", values=(label, paper))
+            self._pair_row_map[iid] = idx
+            self._pair_index_to_iid[idx] = iid
+
+        self.update_pairs_window_selection()
+
+    def _prompt_pairs_window_paper(self, event: tk.Event | None = None):
+        if not self._pairs_window_exists():
+            return "break"
+        tree = self.pairs_tree
+        if tree is None:
+            return "break"
+        iid = tree.focus()
+        if not iid:
+            selection = tree.selection()
+            iid = selection[0] if selection else ""
+        if not iid:
+            return "break"
+        idx = self._pair_row_map.get(iid)
+        if idx is None:
+            return "break"
+        pairs, items = self._get_pairs_and_items()
+        if not (0 <= idx < len(pairs)):
+            return "break"
+        values = tree.item(iid, "values")
+        label = values[0] if values else f"Pair {idx + 1}"
+        current = values[1] if len(values) > 1 else ""
+        if not current and idx < len(items):
+            current = str(items[idx].get("paperType", "") or "").strip()
+        response = simpledialog.askstring(
+            "Paper Type",
+            f"Enter paper type for {label}",
+            initialvalue=current,
+            parent=self.pairs_window,
+        )
+        if response is None:
+            return "break"
+        response = response.strip()
+        if not response:
+            return "break"
+        pairs[idx]["paperType"] = response
+        if idx < len(items):
+            items[idx]["paperType"] = response
+        tree.item(iid, values=(label, response))
+        self.update_fields()
+        return "break"
+
+    def _on_pairs_window_destroy(self, event: tk.Event):
+        self.pairs_window = None
+        self.pairs_tree = None
+        self._pair_row_map.clear()
+        self._pair_index_to_iid.clear()
+
+    def update_pairs_window_selection(self):
+        if not self._pairs_window_exists():
+            return
+        tree = self.pairs_tree
+        if tree is None:
+            return
+        idx = self.index
+        iid = self._pair_index_to_iid.get(idx)
+        if iid:
+            try:
+                tree.selection_set(iid)
+                tree.focus(iid)
+                tree.see(iid)
+            except Exception:
+                pass
+
     def show_missing_templates_window(self, missing: list[str]):
         """Display or update a popup listing missing templates."""
         if self.missing_templates_win and self.missing_templates_win.winfo_exists():
@@ -2028,6 +2193,7 @@ class App:
             self.coffee_label.config(text="")
             self.update_pair_display()
             self.update_order_info()
+            self.update_pairs_window_selection()
             return
 
         item = current_items[self.index]
@@ -2126,6 +2292,7 @@ class App:
         }
         if info_data:
             self.update_order_info(info_data)
+        self.update_pairs_window_selection()
 
     def fetch(self):
         try:
@@ -2589,6 +2756,7 @@ class App:
         self.pairs = []
         self.index = 0
         self.update_fields()
+        self.refresh_pairs_window()
 
     def update_batch_display(self):
         self.order_list.config(state="normal")
@@ -2616,6 +2784,7 @@ class App:
         self.update_order_info()
         self.item_table.delete(*self.item_table.get_children())
         self.ids_text.delete("1.0", tk.END)
+        self.refresh_pairs_window()
 
     def check_art_server(self):
         path = self.art_server_var.get()

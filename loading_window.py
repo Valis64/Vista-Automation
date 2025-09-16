@@ -71,7 +71,7 @@ class LoadingWindow:
         self.row_to_pair: dict[str, int] = {}
         self.completed_pairs: set[int] = set()
 
-        self._create_pair_table_window()
+        self.show_pair_window()
 
         style = ttk.Style(self.window)
         style.configure("LargePB.Horizontal.TProgressbar", thickness=20, troughcolor="#eee")
@@ -250,6 +250,9 @@ class LoadingWindow:
         self.pause_btn.pack(side="left", padx=5)
         self.cancel_btn = ttk.Button(btn_frame, text="Cancel", command=self.cancel)
         self.cancel_btn.pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Pairs Window", command=self.show_pair_window).pack(
+            side="left", padx=5
+        )
 
         self.paused = False
 
@@ -580,6 +583,17 @@ class LoadingWindow:
         self._set_pair_paper(pair_idx, response)
         return "break"
 
+    def show_pair_window(self):
+        if self._pair_window_exists():
+            try:
+                self.pair_window.deiconify()
+                self.pair_window.lift()
+                self.pair_window.focus_force()
+            except Exception:
+                pass
+            return
+        self._create_pair_table_window()
+
     def _pair_window_exists(self) -> bool:
         return bool(self.pair_window) and bool(self.pair_window.winfo_exists())
 
@@ -636,16 +650,30 @@ class LoadingWindow:
             done_tag_style["font"] = done_font
         self.orders_tree.tag_configure("done", **done_tag_style)
 
+        self.orders_tree.delete(*self.orders_tree.get_children())
+        self.pair_rows.clear()
+        self.row_to_pair.clear()
+
         for idx, order_id in enumerate(self.pair_orders):
             item = self.items[idx] if idx < len(self.items) else {}
-            paper = item.get("paperType", "")
+            paper = self.pair_row_papers.get(idx)
+            if paper is None:
+                paper = item.get("paperType", "")
             pair_label = f"{idx + 1}. {order_id}"
-            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
-            self.pair_rows[idx] = iid
-            self.row_to_pair[iid] = idx
             self.pair_row_labels[idx] = pair_label
             self.pair_row_display[idx] = pair_label
             self.pair_row_papers[idx] = paper
+            iid = self.orders_tree.insert(
+                "",
+                "end",
+                values=(pair_label, paper),
+                tags=("pending",),
+            )
+            self.pair_rows[idx] = iid
+            self.row_to_pair[iid] = idx
+
+        for idx in sorted(self.completed_pairs):
+            self._mark_pair_complete(idx)
 
         self.orders_tree.bind("<Double-1>", self._prompt_manual_paper_type)
         self.orders_tree.bind("<Return>", self._prompt_manual_paper_type)
