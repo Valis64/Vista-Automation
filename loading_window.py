@@ -113,51 +113,6 @@ class LoadingWindow:
             if attr:
                 setattr(self, attr, entry)
 
-        orders_frame = ttk.Frame(self.window)
-        orders_frame.pack(padx=20, pady=(0, 10), fill="both")
-        orders_frame.columnconfigure(0, weight=1)
-        orders_frame.rowconfigure(0, weight=1)
-
-        tree_height = min(5, max(len(self.pair_orders), 1))
-        self.orders_tree = ttk.Treeview(
-            orders_frame,
-            columns=("pair", "paper"),
-            show="headings",
-            height=tree_height,
-            selectmode="browse",
-        )
-        self.orders_tree.heading("pair", text="Pair", anchor="center")
-        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
-        self.orders_tree.column("pair", anchor="center", width=260, stretch=True)
-        self.orders_tree.column("paper", anchor="center", width=180, stretch=True)
-        self.orders_tree.grid(row=0, column=0, sticky="nsew")
-
-        orders_scroll = ttk.Scrollbar(orders_frame, orient="vertical", command=self.orders_tree.yview)
-        orders_scroll.grid(row=0, column=1, sticky="ns")
-        self.orders_tree.configure(yscrollcommand=orders_scroll.set)
-
-        self.orders_tree.tag_configure("pending", background="black", foreground="#FF0000")
-        done_font = None
-        try:
-            done_font = tkfont.nametofont("TkDefaultFont").copy()
-        except Exception:
-            done_font = None
-        self._tree_done_font = done_font
-        done_tag_style: dict[str, object] = {"foreground": "#228B22"}
-        if done_font is not None:
-            done_tag_style["font"] = done_font
-        self.orders_tree.tag_configure("done", **done_tag_style)
-
-        for idx, order_id in enumerate(self.pair_orders):
-            item = self.items[idx] if idx < len(self.items) else {}
-            paper = ""
-            pair_label = f"{idx + 1}. {order_id}"
-            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
-            self.pair_rows[idx] = iid
-            self.pair_row_labels[idx] = pair_label
-            self.pair_row_display[idx] = pair_label
-            self.pair_row_papers[idx] = paper
-
         logs_frame = ttk.Frame(self.window)
         logs_frame.pack(padx=20, pady=(0, 10), fill="both", expand=True)
 
@@ -188,18 +143,87 @@ class LoadingWindow:
             foreground="#00FF00",
             font=("Courier New", 12),
         )
-
-        verbose_container = ttk.Frame(logs_frame)
-        verbose_container.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(5, 0))
-        verbose_container.columnconfigure(0, weight=1)
-        verbose_container.rowconfigure(1, weight=1)
-
-        control_bar = ttk.Frame(verbose_container)
-        control_bar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
-
         self.verbose_autoscroll = tk.BooleanVar(value=True)
-        ttk.Button(control_bar, text="Clear", command=self.clear_verbose_log).pack(side="left", padx=(0, 5))
-        ttk.Button(control_bar, text="Save", command=self.save_verbose_log).pack(side="left", padx=(0, 5))
+
+        pair_table_container = ttk.Frame(logs_frame)
+        pair_table_container.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(5, 0))
+        pair_table_container.columnconfigure(0, weight=1)
+        pair_table_container.rowconfigure(1, weight=1)
+        ttk.Label(pair_table_container, text="Pairs & Paper Types", anchor="center").grid(
+            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5)
+        )
+
+        tree_height = min(5, max(len(self.pair_orders), 1))
+        self.orders_tree = ttk.Treeview(
+            pair_table_container,
+            columns=("pair", "paper"),
+            show="headings",
+            height=tree_height,
+            selectmode="browse",
+        )
+        self.orders_tree.heading("pair", text="Pair", anchor="center")
+        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
+        self.orders_tree.column("pair", anchor="center", width=260, stretch=True)
+        self.orders_tree.column("paper", anchor="center", width=180, stretch=True)
+        self.orders_tree.grid(row=1, column=0, sticky="nsew")
+
+        orders_scroll = ttk.Scrollbar(
+            pair_table_container, orient="vertical", command=self.orders_tree.yview
+        )
+        orders_scroll.grid(row=1, column=1, sticky="ns")
+        self.orders_tree.configure(yscrollcommand=orders_scroll.set)
+
+        self.orders_tree.tag_configure("pending", background="black", foreground="#FF0000")
+        done_font = None
+        try:
+            done_font = tkfont.nametofont("TkDefaultFont").copy()
+        except Exception:
+            done_font = None
+        self._tree_done_font = done_font
+        done_tag_style: dict[str, object] = {"foreground": "#228B22"}
+        if done_font is not None:
+            done_tag_style["font"] = done_font
+        self.orders_tree.tag_configure("done", **done_tag_style)
+
+        for idx, order_id in enumerate(self.pair_orders):
+            item = self.items[idx] if idx < len(self.items) else {}
+            paper = ""
+            pair_label = f"{idx + 1}. {order_id}"
+            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
+            self.pair_rows[idx] = iid
+            self.pair_row_labels[idx] = pair_label
+            self.pair_row_display[idx] = pair_label
+            self.pair_row_papers[idx] = paper
+
+        notebook = ttk.Notebook(logs_frame)
+        notebook.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
+
+        pair_log_tab = ttk.Frame(notebook)
+        pair_log_tab.columnconfigure(0, weight=1)
+        pair_log_tab.rowconfigure(0, weight=1)
+        verbose_log_tab = ttk.Frame(notebook)
+        verbose_log_tab.columnconfigure(0, weight=1)
+        verbose_log_tab.rowconfigure(1, weight=1)
+
+        self.pair_log = scrolledtext.ScrolledText(
+            pair_log_tab,
+            width=40,
+            height=5,
+            state="disabled",
+            background="black",
+            foreground="#00FF00",
+            font=("Courier New", 12),
+        )
+        self.pair_log.grid(row=0, column=0, sticky="nsew")
+
+        control_bar = ttk.Frame(verbose_log_tab)
+        control_bar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        ttk.Button(control_bar, text="Clear", command=self.clear_verbose_log).pack(
+            side="left", padx=(0, 5)
+        )
+        ttk.Button(control_bar, text="Save", command=self.save_verbose_log).pack(
+            side="left", padx=(0, 5)
+        )
         ttk.Checkbutton(
             control_bar,
             text="Auto-scroll",
@@ -208,7 +232,7 @@ class LoadingWindow:
         ).pack(side="left")
 
         self.verbose_log = scrolledtext.ScrolledText(
-            verbose_container,
+            verbose_log_tab,
             width=40,
             height=20,
             state="disabled",
@@ -218,15 +242,9 @@ class LoadingWindow:
         )
         self.verbose_log.grid(row=1, column=0, sticky="nsew")
 
-        self.pair_log = scrolledtext.ScrolledText(
-            logs_frame,
-            width=40,
-            height=5,
-            state="disabled",
-            background="black",
-            foreground="#00FF00",
-            font=("Courier New", 12),
-        )
+        notebook.add(pair_log_tab, text="Pair Log")
+        notebook.add(verbose_log_tab, text="Verbose Log")
+
         for box in (self.log_box, self.art_log, self.template_log, self.verbose_log, self.pair_log):
             box.tag_config(
                 "timestamp",
@@ -237,7 +255,6 @@ class LoadingWindow:
         self.log_box.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.art_log.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.template_log.grid(row=1, column=1, sticky="nsew", padx=(5, 0))
-        self.pair_log.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
 
         logs_frame.columnconfigure(0, weight=3)
         logs_frame.columnconfigure(1, weight=1)
