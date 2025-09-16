@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 import tkinter.font as tkfont
 from pathlib import Path
 import json
@@ -44,6 +44,8 @@ class LoadingWindow:
         self.window.attributes("-topmost", True)
         self.window.after(1000, lambda: self.window.attributes("-topmost", False))
 
+        self.pair_window: tk.Toplevel | None = None
+
         try:
             big_font = tkfont.nametofont("TkDefaultFont").copy()
             big_font.configure(size=big_font.cget("size") + 3)
@@ -66,7 +68,10 @@ class LoadingWindow:
         self.pair_row_labels: dict[int, str] = {}
         self.pair_row_display: dict[int, str] = {}
         self.pair_row_papers: dict[int, str] = {}
+        self.row_to_pair: dict[str, int] = {}
         self.completed_pairs: set[int] = set()
+
+        self._create_pair_table_window()
 
         style = ttk.Style(self.window)
         style.configure("LargePB.Horizontal.TProgressbar", thickness=20, troughcolor="#eee")
@@ -145,58 +150,8 @@ class LoadingWindow:
         )
         self.verbose_autoscroll = tk.BooleanVar(value=True)
 
-        pair_table_container = ttk.Frame(logs_frame)
-        pair_table_container.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(5, 0))
-        pair_table_container.columnconfigure(0, weight=1)
-        pair_table_container.rowconfigure(1, weight=1)
-        ttk.Label(pair_table_container, text="Pairs & Paper Types", anchor="center").grid(
-            row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5)
-        )
-
-        tree_height = min(5, max(len(self.pair_orders), 1))
-        self.orders_tree = ttk.Treeview(
-            pair_table_container,
-            columns=("pair", "paper"),
-            show="headings",
-            height=tree_height,
-            selectmode="browse",
-        )
-        self.orders_tree.heading("pair", text="Pair", anchor="center")
-        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
-        self.orders_tree.column("pair", anchor="center", width=260, stretch=True)
-        self.orders_tree.column("paper", anchor="center", width=180, stretch=True)
-        self.orders_tree.grid(row=1, column=0, sticky="nsew")
-
-        orders_scroll = ttk.Scrollbar(
-            pair_table_container, orient="vertical", command=self.orders_tree.yview
-        )
-        orders_scroll.grid(row=1, column=1, sticky="ns")
-        self.orders_tree.configure(yscrollcommand=orders_scroll.set)
-
-        self.orders_tree.tag_configure("pending", background="black", foreground="#FF0000")
-        done_font = None
-        try:
-            done_font = tkfont.nametofont("TkDefaultFont").copy()
-        except Exception:
-            done_font = None
-        self._tree_done_font = done_font
-        done_tag_style: dict[str, object] = {"foreground": "#228B22"}
-        if done_font is not None:
-            done_tag_style["font"] = done_font
-        self.orders_tree.tag_configure("done", **done_tag_style)
-
-        for idx, order_id in enumerate(self.pair_orders):
-            item = self.items[idx] if idx < len(self.items) else {}
-            paper = ""
-            pair_label = f"{idx + 1}. {order_id}"
-            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
-            self.pair_rows[idx] = iid
-            self.pair_row_labels[idx] = pair_label
-            self.pair_row_display[idx] = pair_label
-            self.pair_row_papers[idx] = paper
-
         notebook = ttk.Notebook(logs_frame)
-        notebook.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
+        notebook.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(5, 0))
 
         pair_log_tab = ttk.Frame(notebook)
         pair_log_tab.columnconfigure(0, weight=1)
@@ -258,7 +213,6 @@ class LoadingWindow:
 
         logs_frame.columnconfigure(0, weight=3)
         logs_frame.columnconfigure(1, weight=1)
-        logs_frame.columnconfigure(2, weight=1)
         logs_frame.rowconfigure(0, weight=1)
         logs_frame.rowconfigure(1, weight=1)
         logs_frame.rowconfigure(2, weight=0)
@@ -310,6 +264,13 @@ class LoadingWindow:
     def close(self):
         self.pb.stop()
         self.window.destroy()
+        if self._pair_window_exists():
+            try:
+                self.pair_window.deiconify()
+                self.pair_window.lift()
+                self.pair_window.focus_force()
+            except Exception:
+                pass
 
     def toggle_pause(self):
         flag = APP_DIR / PAUSE_FILE
@@ -366,15 +327,17 @@ class LoadingWindow:
         iid = self.pair_rows.get(pair_idx)
         if iid is None:
             return
+        tree = self.orders_tree if self._pair_window_exists() else None
         if pair_idx in self.completed_pairs and self.pair_row_display.get(pair_idx, "").endswith("✓"):
-            tags = [tag for tag in self.orders_tree.item(iid, "tags") or () if tag != "pending"]
-            if "done" not in tags:
-                tags.append("done")
-            self.orders_tree.item(iid, tags=tags)
+            if tree is not None:
+                tags = [tag for tag in tree.item(iid, "tags") or () if tag != "pending"]
+                if "done" not in tags:
+                    tags.append("done")
+                tree.item(iid, tags=tags)
             return
         base_text = self.pair_row_labels.get(pair_idx)
         if base_text is None:
-            values = self.orders_tree.item(iid, "values")
+            values = tree.item(iid, "values") if tree is not None else ()
             base_text = values[0] if values else ""
             self.pair_row_labels[pair_idx] = base_text
         display_text = self.pair_row_display.get(pair_idx, base_text or "")
@@ -382,13 +345,14 @@ class LoadingWindow:
             display_text = f"{base_text or ''} ✓"
         paper = self.pair_row_papers.get(pair_idx)
         if paper is None:
-            values = self.orders_tree.item(iid, "values")
+            values = tree.item(iid, "values") if tree is not None else ()
             paper = values[1] if len(values) > 1 else ""
             self.pair_row_papers[pair_idx] = paper
-        tags = [tag for tag in self.orders_tree.item(iid, "tags") or () if tag != "pending"]
-        if "done" not in tags:
-            tags.append("done")
-        self.orders_tree.item(iid, values=(display_text, paper), tags=tags)
+        if tree is not None:
+            tags = [tag for tag in tree.item(iid, "tags") or () if tag != "pending"]
+            if "done" not in tags:
+                tags.append("done")
+            tree.item(iid, values=(display_text, paper), tags=tags)
         self.pair_row_display[pair_idx] = display_text
         self.completed_pairs.add(pair_idx)
 
@@ -561,19 +525,136 @@ class LoadingWindow:
         iid = self.pair_rows.get(pair_idx)
         if iid is None:
             return
+        tree = self.orders_tree if self._pair_window_exists() else None
         current = (self.pair_row_papers.get(pair_idx) or "").strip()
         paper = paper.strip()
         if current == paper:
             return
         display_text = self.pair_row_display.get(pair_idx)
         if display_text is None:
-            values = self.orders_tree.item(iid, "values")
+            values = tree.item(iid, "values") if tree is not None else ()
             display_text = values[0] if values else ""
             self.pair_row_display[pair_idx] = display_text
-        tags = self.orders_tree.item(iid, "tags")
-        self.orders_tree.item(iid, values=(display_text, paper), tags=tags)
+        if tree is not None:
+            tags = tree.item(iid, "tags")
+            tree.item(iid, values=(display_text, paper), tags=tags)
         self.pair_row_papers[pair_idx] = paper
         try:
             self.items[pair_idx]["paperType"] = paper
         except Exception:
             pass
+
+    def _prompt_manual_paper_type(self, event: tk.Event | None = None):
+        tree = self.orders_tree if self._pair_window_exists() else None
+        if tree is None:
+            return "break"
+        iid = tree.focus()
+        if not iid:
+            selection = tree.selection()
+            iid = selection[0] if selection else ""
+        if not iid:
+            return "break"
+        pair_idx = self.row_to_pair.get(iid)
+        if pair_idx is None:
+            for idx, row_iid in self.pair_rows.items():
+                if row_iid == iid:
+                    pair_idx = idx
+                    self.row_to_pair[iid] = idx
+                    break
+        if pair_idx is None:
+            return "break"
+        label = self.pair_row_labels.get(pair_idx, f"Pair {pair_idx + 1}")
+        current = self.pair_row_papers.get(pair_idx, "")
+        parent_window = self.pair_window if self._pair_window_exists() else self.window
+        response = simpledialog.askstring(
+            "Paper Type",
+            f"Enter paper type for {label}",
+            initialvalue=current,
+            parent=parent_window,
+        )
+        if response is None:
+            return "break"
+        response = response.strip()
+        if not response:
+            return "break"
+        self._set_pair_paper(pair_idx, response)
+        return "break"
+
+    def _pair_window_exists(self) -> bool:
+        return bool(self.pair_window) and bool(self.pair_window.winfo_exists())
+
+    def _create_pair_table_window(self):
+        self.pair_window = tk.Toplevel(self.parent)
+        self.pair_window.title("Pairs & Paper Types")
+        self.pair_window.attributes("-topmost", True)
+        self.pair_window.after(1000, lambda: self.pair_window.attributes("-topmost", False))
+
+        container = ttk.Frame(self.pair_window, padding=10)
+        container.pack(fill="both", expand=True)
+
+        ttk.Label(container, text="Pairs & Paper Types").pack(anchor="center", pady=(0, 5))
+
+        tree_frame = ttk.Frame(container)
+        tree_frame.pack(fill="both", expand=True)
+
+        tree_height = min(5, max(len(self.pair_orders), 1))
+        self.orders_tree = ttk.Treeview(
+            tree_frame,
+            columns=("pair", "paper"),
+            show="headings",
+            height=tree_height,
+            selectmode="browse",
+        )
+        self.orders_tree.heading("pair", text="Pair", anchor="center")
+        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
+        self.orders_tree.column("pair", anchor="center", width=260, stretch=True)
+        self.orders_tree.column("paper", anchor="center", width=180, stretch=True)
+        self.orders_tree.pack(side="left", fill="both", expand=True)
+
+        orders_scroll = ttk.Scrollbar(
+            tree_frame, orient="vertical", command=self.orders_tree.yview
+        )
+        orders_scroll.pack(side="right", fill="y")
+        self.orders_tree.configure(yscrollcommand=orders_scroll.set)
+
+        instruction = ttk.Label(
+            container,
+            text="Double-click or press Enter to update the selected paper type.",
+            wraplength=360,
+        )
+        instruction.pack(anchor="w", pady=(5, 0))
+
+        self.orders_tree.tag_configure("pending", background="black", foreground="#FF0000")
+        done_font = None
+        try:
+            done_font = tkfont.nametofont("TkDefaultFont").copy()
+        except Exception:
+            done_font = None
+        self._tree_done_font = done_font
+        done_tag_style: dict[str, object] = {"foreground": "#228B22"}
+        if done_font is not None:
+            done_tag_style["font"] = done_font
+        self.orders_tree.tag_configure("done", **done_tag_style)
+
+        for idx, order_id in enumerate(self.pair_orders):
+            item = self.items[idx] if idx < len(self.items) else {}
+            paper = item.get("paperType", "")
+            pair_label = f"{idx + 1}. {order_id}"
+            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
+            self.pair_rows[idx] = iid
+            self.row_to_pair[iid] = idx
+            self.pair_row_labels[idx] = pair_label
+            self.pair_row_display[idx] = pair_label
+            self.pair_row_papers[idx] = paper
+
+        self.orders_tree.bind("<Double-1>", self._prompt_manual_paper_type)
+        self.orders_tree.bind("<Return>", self._prompt_manual_paper_type)
+        self.orders_tree.bind("<KP_Enter>", self._prompt_manual_paper_type)
+        self.pair_window.bind(
+            "<Destroy>",
+            lambda event: self._on_pair_window_destroy(event) if event.widget is self.pair_window else None,
+        )
+
+    def _on_pair_window_destroy(self, event: tk.Event):
+        self.pair_window = None
+        self.orders_tree = None
