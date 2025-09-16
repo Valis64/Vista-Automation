@@ -54,6 +54,7 @@ from review import (
     ReviewManager,
     FLAG_REASONS,
 )
+from utils.version import get_version
 try:
     import pygetwindow as gw
 except Exception:
@@ -1403,7 +1404,10 @@ class App:
         """Display program information."""
         messagebox.showinfo(
             "About",
-            "Illustrator Automation GUI\nProvides batch template processing via Illustrator.",
+            (
+                f"Illustrator Automation GUI v{get_version()}\n"
+                "Provides batch template processing via Illustrator."
+            ),
         )
 
     def show_dashboard(self):
