@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 import tkinter as tk
-from tkinter import scrolledtext, ttk, messagebox
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 import tkinter.font as tkfont
 from pathlib import Path
 import json
@@ -136,8 +136,27 @@ class LoadingWindow:
             foreground="#00FF00",
             font=("Courier New", 12),
         )
-        self.detail_log = scrolledtext.ScrolledText(
-            logs_frame,
+
+        verbose_container = ttk.Frame(logs_frame)
+        verbose_container.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(5, 0))
+        verbose_container.columnconfigure(0, weight=1)
+        verbose_container.rowconfigure(1, weight=1)
+
+        control_bar = ttk.Frame(verbose_container)
+        control_bar.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+
+        self.verbose_autoscroll = tk.BooleanVar(value=True)
+        ttk.Button(control_bar, text="Clear", command=self.clear_verbose_log).pack(side="left", padx=(0, 5))
+        ttk.Button(control_bar, text="Save", command=self.save_verbose_log).pack(side="left", padx=(0, 5))
+        ttk.Checkbutton(
+            control_bar,
+            text="Auto-scroll",
+            variable=self.verbose_autoscroll,
+            command=self._maybe_scroll_verbose,
+        ).pack(side="left")
+
+        self.verbose_log = scrolledtext.ScrolledText(
+            verbose_container,
             width=40,
             height=20,
             state="disabled",
@@ -145,6 +164,8 @@ class LoadingWindow:
             foreground="#00FF00",
             font=("Courier New", 12),
         )
+        self.verbose_log.grid(row=1, column=0, sticky="nsew")
+
         self.pair_log = scrolledtext.ScrolledText(
             logs_frame,
             width=40,
@@ -154,7 +175,7 @@ class LoadingWindow:
             foreground="#00FF00",
             font=("Courier New", 12),
         )
-        for box in (self.log_box, self.art_log, self.template_log, self.detail_log, self.pair_log):
+        for box in (self.log_box, self.art_log, self.template_log, self.verbose_log, self.pair_log):
             box.tag_config(
                 "timestamp",
                 foreground="yellow",
@@ -164,7 +185,6 @@ class LoadingWindow:
         self.log_box.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.art_log.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.template_log.grid(row=1, column=1, sticky="nsew", padx=(5, 0))
-        self.detail_log.grid(row=0, column=2, rowspan=2, sticky="nsew", padx=(5, 0))
         self.pair_log.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(5, 0))
 
         logs_frame.columnconfigure(0, weight=3)
@@ -250,6 +270,29 @@ class LoadingWindow:
         self.pause_btn.config(state="disabled")
         self.update_status("Cancelling...")
 
+    def clear_verbose_log(self):
+        self.verbose_log.config(state="normal")
+        self.verbose_log.delete("1.0", tk.END)
+        self.verbose_log.config(state="disabled")
+
+    def save_verbose_log(self):
+        path = filedialog.asksaveasfilename(
+            parent=self.window,
+            defaultextension=".txt",
+            filetypes=(("Text Files", "*.txt"), ("All Files", "*.*")),
+        )
+        if not path:
+            return
+        try:
+            content = self.verbose_log.get("1.0", tk.END)
+            Path(path).write_text(content, encoding="utf-8")
+        except Exception as exc:
+            messagebox.showerror("Save Error", str(exc), parent=self.window)
+
+    def _maybe_scroll_verbose(self):
+        if self.verbose_autoscroll.get():
+            self.verbose_log.see(tk.END)
+
     def update_timers(self):
         if self.start_time is not None:
             elapsed = time.time() - self.start_time
@@ -264,7 +307,15 @@ class LoadingWindow:
             self.apm_label_var.set(f"APM: {apm:.1f}")
         self.window.after(1000, self.update_timers)
 
-    def _append(self, box: scrolledtext.ScrolledText, text: str | None = None, tag: str | None = None, extra_space: bool = False):
+    def _append(
+        self,
+        box: scrolledtext.ScrolledText,
+        text: str | None = None,
+        tag: str | None = None,
+        extra_space: bool = False,
+        *,
+        auto_scroll: bool = True,
+    ):
         box.config(state="normal")
         ts = time.strftime("[%H:%M:%S] ")
         box.insert(tk.END, ts, "timestamp")
@@ -274,7 +325,8 @@ class LoadingWindow:
             box.insert(tk.END, (text or self.status_var.get()) + "\n")
         if extra_space:
             box.insert(tk.END, "\n")
-        box.see(tk.END)
+        if auto_scroll:
+            box.see(tk.END)
         box.config(state="disabled")
 
     def update_status(self, msg: str):
@@ -317,16 +369,19 @@ class LoadingWindow:
         self.status_var.set(prefix + msg)
 
         lower = msg.lower()
+        auto_kwargs = {"auto_scroll": self.verbose_autoscroll.get()}
         self._append(self.log_box)
         if msg.startswith("  "):
-            self._append(self.detail_log, msg.strip(), extra_space=True)
+            self._append(self.verbose_log, **auto_kwargs)
+            self._append(self.verbose_log, msg.strip(), extra_space=True, **auto_kwargs)
         elif m:
+            self._append(self.verbose_log, **auto_kwargs)
             lam = self.items[pair_idx].get("lamType", "")
             color = get_laminate_color(lam)
             tag = f"lam_{color}"
             if not self.pair_log.tag_cget(tag, "foreground"):
                 self.pair_log.tag_config(tag, foreground=color)
-                self.detail_log.tag_config(tag, foreground=color)
+                self.verbose_log.tag_config(tag, foreground=color)
             prefix_msg = "✔" if "finished" in lower else "→"
             entry = f"{prefix_msg} {self.pair_var.get()}"
             details = (f" - {lam}" if lam else "")
@@ -375,9 +430,15 @@ class LoadingWindow:
                 details += f" ({', '.join(specials)})"
             time_note = f" ({duration:.1f}s)" if duration is not None else ""
             self._append(self.pair_log, entry + details + time_note, tag)
-            self._append(self.detail_log, entry + details + time_note, tag, extra_space=True)
+            self._append(
+                self.verbose_log,
+                entry + details + time_note,
+                tag,
+                extra_space=True,
+                **auto_kwargs,
+            )
         else:
-            self._append(self.detail_log, extra_space=True)
+            self._append(self.verbose_log, extra_space=True, **auto_kwargs)
             if "art" in lower:
                 self._append(self.art_log)
             if "template" in lower:
