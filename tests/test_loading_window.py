@@ -53,3 +53,31 @@ def test_verbose_log_captures_progress_messages(tk_root):
         assert tag_name in window.verbose_log.tag_names(arrow_index)
     finally:
         window.close()
+
+
+def test_pair_list_marks_completed_rows(tk_root):
+    items = [
+        {"company": "One", "paperType": "Gloss 14pt"},
+        {"company": "Two", "paperType": "Matte 16pt"},
+    ]
+    orders = ["ORDER-1", "ORDER-2"]
+
+    window = LoadingWindow(tk_root, items, orders)
+    try:
+        first_row = window.orders_tree.item(window.pair_rows[0], "values")
+        assert "ORDER-1" in first_row[0]
+        assert first_row[1] == "Gloss 14pt"
+
+        window.update_status("Processing pair 1 of 2")
+        window.update_status("Finished pair 1 of 2")
+
+        completed_row = window.orders_tree.item(window.pair_rows[0], "values")
+        assert completed_row[0].endswith("✓")
+        assert completed_row[1] == "Gloss 14pt"
+        assert "done" in window.orders_tree.item(window.pair_rows[0], "tags")
+
+        second_row = window.orders_tree.item(window.pair_rows[1], "values")
+        assert not second_row[0].endswith("✓")
+        assert second_row[1] == "Matte 16pt"
+    finally:
+        window.close()
