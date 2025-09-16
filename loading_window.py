@@ -136,10 +136,10 @@ class LoadingWindow:
         orders_scroll.grid(row=0, column=1, sticky="ns")
         self.orders_tree.configure(yscrollcommand=orders_scroll.set)
 
+        self.orders_tree.tag_configure("pending", background="black", foreground="#FF0000")
         done_font = None
         try:
             done_font = tkfont.nametofont("TkDefaultFont").copy()
-            done_font.configure(overstrike=1)
         except Exception:
             done_font = None
         self._tree_done_font = done_font
@@ -152,7 +152,7 @@ class LoadingWindow:
             item = self.items[idx] if idx < len(self.items) else {}
             paper = ""
             pair_label = f"{idx + 1}. {order_id}"
-            iid = self.orders_tree.insert("", "end", values=(pair_label, paper))
+            iid = self.orders_tree.insert("", "end", values=(pair_label, paper), tags=("pending",))
             self.pair_rows[idx] = iid
             self.pair_row_labels[idx] = pair_label
             self.pair_row_display[idx] = pair_label
@@ -350,10 +350,10 @@ class LoadingWindow:
         if iid is None:
             return
         if pair_idx in self.completed_pairs and self.pair_row_display.get(pair_idx, "").endswith("✓"):
-            tags = list(self.orders_tree.item(iid, "tags") or ())
+            tags = [tag for tag in self.orders_tree.item(iid, "tags") or () if tag != "pending"]
             if "done" not in tags:
                 tags.append("done")
-                self.orders_tree.item(iid, tags=tags)
+            self.orders_tree.item(iid, tags=tags)
             return
         base_text = self.pair_row_labels.get(pair_idx)
         if base_text is None:
@@ -368,7 +368,7 @@ class LoadingWindow:
             values = self.orders_tree.item(iid, "values")
             paper = values[1] if len(values) > 1 else ""
             self.pair_row_papers[pair_idx] = paper
-        tags = list(self.orders_tree.item(iid, "tags") or ())
+        tags = [tag for tag in self.orders_tree.item(iid, "tags") or () if tag != "pending"]
         if "done" not in tags:
             tags.append("done")
         self.orders_tree.item(iid, values=(display_text, paper), tags=tags)
