@@ -19,6 +19,8 @@ TEMPLATE_SETTINGS_DIR = APP_DIR / "template_settings"
 PAUSE_FILE = "jsx_pause.flag"
 CANCEL_FILE = "jsx_cancel.flag"
 
+PAPER_TYPE_RE = re.compile(r"(\d+in)", re.IGNORECASE)
+
 from utils.common import (
     LAM_COLORS,
     get_laminate_color,
@@ -116,7 +118,7 @@ class LoadingWindow:
         orders_frame.columnconfigure(0, weight=1)
         orders_frame.rowconfigure(0, weight=1)
 
-        tree_height = min(10, max(len(self.pair_orders), 1))
+        tree_height = min(5, max(len(self.pair_orders), 1))
         self.orders_tree = ttk.Treeview(
             orders_frame,
             columns=("pair", "paper"),
@@ -124,10 +126,10 @@ class LoadingWindow:
             height=tree_height,
             selectmode="browse",
         )
-        self.orders_tree.heading("pair", text="Pair")
-        self.orders_tree.heading("paper", text="Paper Type")
-        self.orders_tree.column("pair", anchor="w", width=260, stretch=True)
-        self.orders_tree.column("paper", anchor="w", width=180, stretch=True)
+        self.orders_tree.heading("pair", text="Pair", anchor="center")
+        self.orders_tree.heading("paper", text="Paper Type", anchor="center")
+        self.orders_tree.column("pair", anchor="center", width=260, stretch=True)
+        self.orders_tree.column("paper", anchor="center", width=180, stretch=True)
         self.orders_tree.grid(row=0, column=0, sticky="nsew")
 
         orders_scroll = ttk.Scrollbar(orders_frame, orient="vertical", command=self.orders_tree.yview)
@@ -148,7 +150,7 @@ class LoadingWindow:
 
         for idx, order_id in enumerate(self.pair_orders):
             item = self.items[idx] if idx < len(self.items) else {}
-            paper = str(item.get("paperType", "") or "").strip()
+            paper = ""
             pair_label = f"{idx + 1}. {order_id}"
             iid = self.orders_tree.insert("", "end", values=(pair_label, paper))
             self.pair_rows[idx] = iid
@@ -451,6 +453,10 @@ class LoadingWindow:
         self.status_var.set(prefix + msg)
 
         lower = msg.lower()
+        if self.current_pair >= 0 and "saved" in lower and "flat" in lower:
+            paper = self._extract_paper_type(msg)
+            if paper:
+                self._set_pair_paper(self.current_pair, paper)
         auto_kwargs = {"auto_scroll": self.verbose_autoscroll.get()}
         self._append(self.log_box)
         if msg.startswith("  "):
@@ -525,3 +531,32 @@ class LoadingWindow:
                 self._append(self.art_log)
             if "template" in lower:
                 self._append(self.template_log)
+
+    def _extract_paper_type(self, text: str) -> str:
+        match = PAPER_TYPE_RE.search(text)
+        return match.group(1).lower() if match else ""
+
+    def _set_pair_paper(self, pair_idx: int, paper: str) -> None:
+        if not paper:
+            return
+        if not (0 <= pair_idx < len(self.pair_orders)):
+            return
+        iid = self.pair_rows.get(pair_idx)
+        if iid is None:
+            return
+        current = (self.pair_row_papers.get(pair_idx) or "").strip()
+        paper = paper.strip()
+        if current == paper:
+            return
+        display_text = self.pair_row_display.get(pair_idx)
+        if display_text is None:
+            values = self.orders_tree.item(iid, "values")
+            display_text = values[0] if values else ""
+            self.pair_row_display[pair_idx] = display_text
+        tags = self.orders_tree.item(iid, "tags")
+        self.orders_tree.item(iid, values=(display_text, paper), tags=tags)
+        self.pair_row_papers[pair_idx] = paper
+        try:
+            self.items[pair_idx]["paperType"] = paper
+        except Exception:
+            pass
