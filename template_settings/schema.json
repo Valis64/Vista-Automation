@@ -20,6 +20,21 @@
       "type": "number",
       "minimum": 0,
       "description": "Scale factor applied to artwork (1 = 100%)"
+    },
+    "alignment": {
+      "type": "string",
+      "enum": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center-left",
+        "center",
+        "center-right",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "description": "Anchor point for placing artwork"
     }
   },
   "additionalProperties": false

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 from utils.common import (
+    ALLOWED_ALIGNMENTS,
     load_template_settings,
     save_template_settings,
     update_template_settings,
@@ -49,6 +50,7 @@ class TemplateSettingsTest(unittest.TestCase):
         settings = load_template_settings("RT3055")
         self.assertFalse(settings.get("mirror"))
         self.assertEqual(settings.get("artworkScale"), 1)
+        self.assertEqual(settings.get("alignment"), "center")
 
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -133,6 +135,7 @@ class TemplateSettingsTest(unittest.TestCase):
         self.assertTrue(validate_template_settings({"rotation": 90}))
         self.assertTrue(validate_template_settings({"mirror": True}))
         self.assertTrue(validate_template_settings({"artworkScale": 1.2}))
+        self.assertTrue(validate_template_settings({"alignment": "center"}))
         with self.assertRaises(ValueError):
             validate_template_settings({"rotation": "90"})
         with self.assertRaises(ValueError):
@@ -141,6 +144,28 @@ class TemplateSettingsTest(unittest.TestCase):
             validate_template_settings({"artworkScale": -1})
         with self.assertRaises(ValueError):
             validate_template_settings({"extra": 1})
+        with self.assertRaises(ValueError):
+            validate_template_settings({"alignment": "diagonal"})
+
+    def test_alignment_normalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {
+                    "alignment": {
+                        "type": "string",
+                        "enum": ALLOWED_ALIGNMENTS,
+                    }
+                },
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            Path(tmp, "ZZ0003.json").write_text(json.dumps({"alignment": "TOP_LEFT"}))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                data = load_template_settings("ZZ0003")
+                self.assertEqual(data["alignment"], "top-left")
 
     def test_validation_schema_change(self):
         schema = {
