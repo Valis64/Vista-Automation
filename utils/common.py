@@ -15,6 +15,18 @@ else:
 
 TEMPLATE_SETTINGS_DIR = APP_DIR / "template_settings"
 
+ALLOWED_ALIGNMENTS = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "center-left",
+    "center",
+    "center-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+]
+
 LAM_COLORS = {
     "matte": "#FFA500",  # [255,165,0]
     "gloss": "#008000",  # [0,128,0]
@@ -51,11 +63,24 @@ def load_template_settings(code: str, *, defaults: bool = True) -> dict:
                     data[key] = caster(data[key])
                 except ValueError:
                     pass
+        if "alignment" in data:
+            alignment = data["alignment"]
+            if isinstance(alignment, str):
+                normalized = alignment.strip().lower().replace("_", "-").replace(" ", "-")
+                if normalized not in ALLOWED_ALIGNMENTS:
+                    raise ValueError(
+                        "Invalid template settings: alignment must be one of "
+                        + ", ".join(ALLOWED_ALIGNMENTS)
+                    )
+                data["alignment"] = normalized
+            else:
+                raise ValueError("Invalid template settings: alignment must be a string")
         validate_template_settings(data)
         if defaults:
             data = dict(data)
             data.setdefault("mirror", False)
             data.setdefault("artworkScale", 1)
+            data.setdefault("alignment", "center")
         return data
     except Exception:
         return {}
@@ -157,6 +182,7 @@ def is_pb005(template: str) -> bool:
 
 
 __all__ = [
+    "ALLOWED_ALIGNMENTS",
     "LAM_COLORS",
     "get_laminate_color",
     "load_template_settings",
