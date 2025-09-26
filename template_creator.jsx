@@ -917,13 +917,65 @@ function getMaskBounds(group) {
     return group.geometricBounds;
 }
 
-function alignGroupToPath(group, path) {
+function normalizeAlignment(alignment) {
+    if (!alignment || typeof alignment !== 'string') return 'center';
+    var key = alignment.toLowerCase();
+    switch (key) {
+        case 'top-left':
+        case 'top-center':
+        case 'top-right':
+        case 'center-left':
+        case 'center':
+        case 'center-right':
+        case 'bottom-left':
+        case 'bottom-center':
+        case 'bottom-right':
+            return key;
+        default:
+            return 'center';
+    }
+}
+
+function getBoundsAnchor(bounds, alignment) {
+    var left = bounds[0];
+    var top = bounds[1];
+    var right = bounds[2];
+    var bottom = bounds[3];
+    var centerX = (left + right) / 2;
+    var centerY = (top + bottom) / 2;
+    switch (alignment) {
+        case 'top-left':
+            return [left, top];
+        case 'top-center':
+            return [centerX, top];
+        case 'top-right':
+            return [right, top];
+        case 'center-left':
+            return [left, centerY];
+        case 'center-right':
+            return [right, centerY];
+        case 'bottom-left':
+            return [left, bottom];
+        case 'bottom-center':
+            return [centerX, bottom];
+        case 'bottom-right':
+            return [right, bottom];
+        case 'center':
+        default:
+            return [centerX, centerY];
+    }
+}
+
+function alignGroupToPath(group, path, alignment) {
     if (!path) return;
     var maskB = getMaskBounds(group);
     if (!maskB) return;
     var targetB = path.geometricBounds;
-    var dx = (targetB[0] + targetB[2]) / 2 - (maskB[0] + maskB[2]) / 2;
-    var dy = (targetB[1] + targetB[3]) / 2 - (maskB[1] + maskB[3]) / 2;
+    var resolvedAlignment = normalizeAlignment(alignment);
+    var sourceAnchor = getBoundsAnchor(maskB, resolvedAlignment);
+    var targetAnchor = getBoundsAnchor(targetB, resolvedAlignment);
+    var dx = targetAnchor[0] - sourceAnchor[0];
+    var dy = targetAnchor[1] - sourceAnchor[1];
     group.translate(dx, dy);
 }
 
@@ -1151,6 +1203,11 @@ function processPair(pair, index) {
     var isPB001 = tmplName.indexOf('pb001') !== -1;
     var isPB005 = tmplName.indexOf('pb005') !== -1;
     var settings = loadTemplateSettings(pair.templateCode);
+    var rawAlignment = (settings && typeof settings.alignment === 'string') ? settings.alignment : null;
+    var alignment = normalizeAlignment(rawAlignment || 'center');
+    if (rawAlignment && rawAlignment.toLowerCase() !== alignment) {
+        writeProgress('Alignment "' + rawAlignment + '" not recognized. Using ' + alignment + '.');
+    }
 
     writeProgress('Finding bleed path in artwork');
     var bleedGroup = isCD0434 ?
@@ -1249,8 +1306,8 @@ function processPair(pair, index) {
         }
         waitStep();
 
-        writeProgress('Aligning artwork');
-        alignGroupToPath(pasted, bleedPaths[bi2]);
+        writeProgress('Aligning artwork (' + alignment + ')');
+        alignGroupToPath(pasted, bleedPaths[bi2], alignment);
         waitStep();
         writeProgress('  Alignment done');
     }
