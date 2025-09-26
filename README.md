@@ -22,7 +22,7 @@ For a detailed setup and usage guide see [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.
 - Optional Art Server and Google Drive paths with connectivity indicators.
 - Login details and settings persist in `settings.json` so the GUI stays ready between sessions.
 - The Diagnostic panel's **Open Art Directories** button shows all folders in a grid so you can monitor them live.
-- The Diagnostic panel's **Move art to art folders** button organizes orders when artwork is in the order folder itself.
+- The Diagnostic panel's **Extract & move art** button extracts ZIP attachments and organizes orders when artwork is in the order folder itself.
 - The Diagnostic mode checkbox remembers its state so you don't have to re-enable it each launch.
 - The loading screen displays an estimated Actions per Minute gauge while Illustrator runs.
 - During processing the loading screen shows both in-progress and completed pairs with laminate color highlights. All Illustrator progress messages appear in a right-side details pane, including the filenames of saved PDFs.
