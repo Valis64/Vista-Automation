@@ -28,6 +28,7 @@ import math
 import shutil
 from loading_window import LoadingWindow
 from utils.common import (
+    ALLOWED_ALIGNMENTS,
     LAM_COLORS,
     get_laminate_color,
     load_template_settings,
@@ -1461,7 +1462,7 @@ class App:
 
         table_frame = tk.Frame(win)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        columns = ("code", "rotation", "bleed", "mirror", "artworkScale")
+        columns = ("code", "rotation", "bleed", "mirror", "artworkScale", "alignment")
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
@@ -1471,8 +1472,14 @@ class App:
         tree.pack(side="left", fill="both", expand=True)
         for col in columns:
             tree.heading(col, text=col.title())
-            width = 120 if col != "bleed" else 240
-            tree.column(col, width=width, anchor="w")
+            if col == "bleed":
+                width = 240
+            elif col == "alignment":
+                width = 140
+            else:
+                width = 120
+            anchor = "w" if col in {"code", "bleed"} else "center"
+            tree.column(col, width=width, anchor=anchor)
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scroll.set)
         scroll.pack(side="left", fill="y")
@@ -1481,6 +1488,7 @@ class App:
         bleed_var = tk.StringVar()
         mirror_var = tk.BooleanVar()
         scale_var = tk.StringVar()
+        alignment_var = tk.StringVar(value="center")
         status_var = tk.StringVar()
         unsaved = {"flag": False}
 
@@ -1499,11 +1507,12 @@ class App:
                 bleed = ", ".join(data.get("bleedPaths", []))
                 mirror = data.get("mirror", False)
                 scale = data.get("artworkScale", "")
+                alignment = data.get("alignment", "center")
                 tree.insert(
                     "",
                     "end",
                     iid=code,
-                    values=(code, rot, bleed, mirror, scale),
+                    values=(code, rot, bleed, mirror, scale, alignment),
                 )
             if sel and sel[0] in tree.get_children():
                 tree.selection_set(sel[0])
@@ -1521,6 +1530,7 @@ class App:
             bleed_var.set(", ".join(data.get("bleedPaths", [])))
             mirror_var.set(bool(data.get("mirror", False)))
             scale_var.set(str(data.get("artworkScale", "")))
+            alignment_var.set(str(data.get("alignment", "center")))
             unsaved["flag"] = False
             update_state()
             tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
@@ -1534,18 +1544,27 @@ class App:
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
-        tk.Checkbutton(edit_frame, text="Mirror", variable=mirror_var).grid(
-            row=2, column=0, columnspan=2, sticky="w"
+        tk.Label(edit_frame, text="Alignment").grid(row=2, column=0, sticky="w")
+        alignment_combo = ttk.Combobox(
+            edit_frame,
+            textvariable=alignment_var,
+            values=ALLOWED_ALIGNMENTS,
+            state="readonly",
         )
-        tk.Label(edit_frame, text="Artwork Scale").grid(row=3, column=0, sticky="w")
-        tk.Entry(edit_frame, textvariable=scale_var).grid(row=3, column=1, sticky="we")
+        alignment_combo.grid(row=2, column=1, sticky="we")
+        tk.Checkbutton(edit_frame, text="Mirror", variable=mirror_var).grid(
+            row=3, column=0, columnspan=2, sticky="w"
+        )
+        tk.Label(edit_frame, text="Artwork Scale").grid(row=4, column=0, sticky="w")
+        tk.Entry(edit_frame, textvariable=scale_var).grid(row=4, column=1, sticky="we")
         edit_frame.grid_columnconfigure(1, weight=1)
 
         def validate() -> bool:
             rot = rotation_var.get().strip()
             bleed = bleed_var.get().strip()
             scale = scale_var.get().strip()
-            if not rot or not bleed or not scale:
+            alignment = alignment_var.get().strip()
+            if not rot or not bleed or not scale or not alignment:
                 return False
             try:
                 int(rot)
@@ -1555,6 +1574,8 @@ class App:
                 if float(scale) < 0:
                     return False
             except ValueError:
+                return False
+            if alignment not in ALLOWED_ALIGNMENTS:
                 return False
             return True
 
@@ -1573,6 +1594,7 @@ class App:
         bleed_var.trace_add("write", mark_unsaved)
         mirror_var.trace_add("write", mark_unsaved)
         scale_var.trace_add("write", mark_unsaved)
+        alignment_var.trace_add("write", mark_unsaved)
 
         def update_state():
             if unsaved["flag"] and validate():
@@ -1593,6 +1615,8 @@ class App:
             updates["mirror"] = mirror_var.get()
             scale_text = scale_var.get().strip()
             updates["artworkScale"] = float(scale_text)
+            alignment_value = alignment_var.get().strip()
+            updates["alignment"] = alignment_value
             try:
                 update_template_settings(code, updates)
                 tree.item(
@@ -1603,6 +1627,7 @@ class App:
                         ", ".join(paths),
                         updates["mirror"],
                         updates["artworkScale"],
+                        alignment_value,
                     ),
                 )
                 status_var.set("Saved")
@@ -1637,6 +1662,15 @@ class App:
                     self.scale_var = tk.StringVar(value="1")
                     tk.Entry(master, textvariable=self.scale_var).grid(row=4, column=1, sticky="we")
 
+                    tk.Label(master, text="Alignment:").grid(row=5, column=0, sticky="e")
+                    self.alignment_var = tk.StringVar(value="center")
+                    ttk.Combobox(
+                        master,
+                        textvariable=self.alignment_var,
+                        values=ALLOWED_ALIGNMENTS,
+                        state="readonly",
+                    ).grid(row=5, column=1, sticky="we")
+
                     return code_entry
 
                 def validate(self):
@@ -1657,12 +1691,21 @@ class App:
                         messagebox.showerror("Error", "Scale must be a non-negative number", parent=self)
                         return False
                     bleed = [p.strip() for p in re.split(r"[,\s]+", self.bleed_var.get()) if p.strip()]
+                    alignment = self.alignment_var.get().strip()
+                    if alignment not in ALLOWED_ALIGNMENTS:
+                        messagebox.showerror(
+                            "Error",
+                            "Alignment must be selected from the list",
+                            parent=self,
+                        )
+                        return False
                     self.result = {
                         "code": code,
                         "rotation": rotation,
                         "bleedPaths": bleed,
                         "mirror": self.mirror_var.get(),
                         "artworkScale": scale,
+                        "alignment": alignment,
                     }
                     return True
 
@@ -1678,6 +1721,7 @@ class App:
                 "bleedPaths": dialog.result["bleedPaths"],
                 "mirror": dialog.result["mirror"],
                 "artworkScale": dialog.result["artworkScale"],
+                "alignment": dialog.result["alignment"],
             }
             try:
                 save_template_settings(code, data)
@@ -1702,6 +1746,7 @@ class App:
                     bleed_var.set("")
                     mirror_var.set(False)
                     scale_var.set("")
+                    alignment_var.set("")
                     unsaved["flag"] = False
                     update_state()
                 except Exception as exc:
