@@ -116,7 +116,8 @@ Example:
   "rotation": 90,
   "mirror": true,
   "artworkScale": 0.95,
-  "bleedPaths": ["bleed1", "bleed2"]
+  "bleedPaths": ["bleed1", "bleed2"],
+  "alignment": "center"
 }
 ```
 
@@ -124,15 +125,17 @@ Example:
 - **bleedPaths** – additional path names to treat as bleed when exporting.
 - **mirror** – flips the artwork horizontally before placement.
 - **artworkScale** – scales the artwork by this factor.
+- **alignment** – anchor point used to align artwork to the bleed path. Options include `top-left`, `top-center`, `top-right`, `center-left`, `center`, `center-right`, `bottom-left`, `bottom-center` and `bottom-right`.
 
 Existing settings files remain valid. To migrate, simply add `mirror` or `artworkScale` only to templates that require those
 overrides. The program automatically loads these files when processing a matching template.
 
 Open the **Template Settings** dialog from the Settings tab to manage these files. The **Add** button launches a dialog asking
-for the template code, rotation value, comma-separated bleed paths, a **Mirror** toggle and an artwork scale. For instance,
-entering `90` for rotation, `bleed1, bleed2` for bleed paths and checking **Mirror** will rotate, include the listed paths and
-flip the artwork during processing. Use the **Export** button to save all settings to a ZIP archive and **Import** to restore
-them. Importing asks for confirmation before overwriting existing files.
+for the template code, rotation value, comma-separated bleed paths, an alignment choice, a **Mirror** toggle and an artwork
+scale. For instance, entering `90` for rotation, `bleed1, bleed2` for bleed paths, selecting `center-right` alignment and
+checking **Mirror** will rotate, align, include the listed paths and flip the artwork during processing. Use the **Export**
+button to save all settings to a ZIP archive and **Import** to restore them. Importing asks for confirmation before
+overwriting existing files.
 
 ## 12. Additional Notes
 

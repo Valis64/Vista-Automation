@@ -175,7 +175,8 @@ example `PB001.json`) and may define the following fields:
   "rotation": 90,
   "bleedPaths": ["bleed1", "bleed2"],
   "mirror": true,
-  "artworkScale": 0.95
+  "artworkScale": 0.95,
+  "alignment": "center"
 }
 ```
 
@@ -183,6 +184,7 @@ example `PB001.json`) and may define the following fields:
 - **bleedPaths** – comma‑separated path names treated as bleed during export.
 - **mirror** – when `true`, flips the artwork horizontally before placement.
 - **artworkScale** – scales the artwork by this factor (1 leaves it unchanged).
+- **alignment** – anchor used when positioning artwork on the bleed path. Choose from `top-left`, `top-center`, `top-right`, `center-left`, `center`, `center-right`, `bottom-left`, `bottom-center` or `bottom-right`.
 
 The GUI and Illustrator script automatically apply these settings whenever a template code matches one of the JSON files. Omit
 any field to use the defaults.
