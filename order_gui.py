@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import traceback
+import zipfile
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -524,23 +525,67 @@ def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = N
 
 
 def move_art_to_folder(order_dir: str) -> int:
-    """Move .ai or .pdf files in ``order_dir`` to an ``art`` subfolder.
+    """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns the number of files moved.
+    Returns the number of files moved into the ``art`` subfolder.
     """
+
     if not os.path.isdir(order_dir):
         return 0
+
+    try:
+        entries = os.listdir(order_dir)
+    except Exception:
+        traceback.print_exc()
+        return 0
+
+    extracted = False
+    for name in list(entries):
+        if not name.lower().endswith(".zip"):
+            continue
+        zip_path = os.path.join(order_dir, name)
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(order_dir)
+            os.remove(zip_path)
+            extracted = True
+        except Exception:
+            traceback.print_exc()
+
+    if extracted:
+        try:
+            entries = os.listdir(order_dir)
+        except Exception:
+            traceback.print_exc()
+            entries = []
+
     art_dir = os.path.join(order_dir, "art")
-    if os.path.isdir(art_dir):
-        return 0
-    files = [f for f in os.listdir(order_dir) if f.lower().endswith((".ai", ".pdf"))]
-    if not files:
-        return 0
-    os.makedirs(art_dir, exist_ok=True)
     moved = 0
-    for name in files:
+    for name in entries:
+        lower = name.lower()
+        if not lower.endswith((".ai", ".pdf")):
+            continue
         src = os.path.join(order_dir, name)
+        if not os.path.isfile(src):
+            continue
         dest = os.path.join(art_dir, name)
+        if os.path.abspath(src) == os.path.abspath(dest):
+            continue
+        if not os.path.isdir(art_dir):
+            try:
+                os.makedirs(art_dir, exist_ok=True)
+            except Exception:
+                traceback.print_exc()
+                break
+        if os.path.exists(dest):
+            stem, ext = os.path.splitext(name)
+            counter = 1
+            while True:
+                candidate = os.path.join(art_dir, f"{stem}_{counter}{ext}")
+                if not os.path.exists(candidate):
+                    dest = candidate
+                    break
+                counter += 1
         try:
             shutil.move(src, dest)
             moved += 1
@@ -1215,7 +1260,7 @@ class App:
         row += 1
         tk.Button(
             diag_frame,
-            text="Move art to art folders",
+            text="Extract & move art",
             command=self.move_art_to_art_folders,
         ).grid(row=row, column=0, pady=2, sticky="w")
         row += 1
@@ -2658,7 +2703,7 @@ class App:
         self._arrange_windows(list(paths))
 
     def move_art_to_art_folders(self):
-        """Create missing 'art' folders and move art files into them."""
+        """Extract ZIPs and move art files into per-order ``art`` folders."""
         month_root = self.month_dir_var.get().strip()
         if not month_root:
             messagebox.showerror("Error", "Set month folder first")
@@ -2674,8 +2719,11 @@ class App:
             order_dir = os.path.join(month_root, order_id)
             moved += move_art_to_folder(order_dir)
         messagebox.showinfo(
-            "Move Art",
-            f"Moved {moved} file{'s' if moved != 1 else ''} into art folders.",
+            "Extract & Move Art",
+            (
+                "Extracted archives (if any) and moved "
+                f"{moved} file{'s' if moved != 1 else ''} into art folders."
+            ),
         )
 
     def _arrange_windows(self, paths: list[str]):

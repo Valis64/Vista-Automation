@@ -143,7 +143,7 @@ overwriting existing files.
 - When Illustrator is launched from the GUI, both `order_data.json` and the downloaded page are written next to the script so ExtendScript has access to up-to-date data.
 - The Chat Bot panel animates responses character by character, creating the effect of rapid typing. Use it for quick questions while processing orders.
 - Use **Open Art Directories** in the Diagnostic panel to show all artwork folders side by side in a grid.
-- Use **Move art to art folders** in the Diagnostic panel to create missing `art` folders and relocate files.
+- Use **Extract & move art** in the Diagnostic panel to extract ZIP attachments, create missing `art` folders and relocate files.
 - The Diagnostic mode checkbox saves its last value so you don't need to toggle it every session.
 - **Preserve Color Profile** instructs the exporter to stop if artwork and template color spaces differ instead of converting automatically.
 - The loading window shows an estimated Actions per Minute gauge while processing.
