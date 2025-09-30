@@ -21,7 +21,7 @@ class TemplateUtilsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = "RT3466_print 10in -vp (SAMPLE).pdf"
             print_path = os.path.join(tmp, base)
-            cut_path = os.path.join(tmp, "RT3466_cut 10in -vp.pdf")
+            cut_path = os.path.join(tmp, "RT3466_cut 10in.pdf")
             open(print_path, "w").close()
             open(cut_path, "w").close()
             result = find_template_file(tmp, "RT3466", sample=True)

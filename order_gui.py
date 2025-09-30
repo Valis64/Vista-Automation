@@ -457,12 +457,28 @@ def cut_file_for_template(template_path: str) -> str:
     base = base.replace("(SAMPLE)", "").replace("(sample)", "")
     base = re.sub(r"\s+", " ", base).strip()
     base = re.sub(r"\s+\.", ".", base)
-    path = os.path.join(os.path.dirname(template_path), base)
-    if os.path.isfile(path):
-        return path
-    root, ext = os.path.splitext(path)
-    alt = root + (".ai" if ext.lower() == ".pdf" else ".pdf")
-    return alt if os.path.isfile(alt) else ""
+
+    def resolve(path: str) -> str:
+        if os.path.isfile(path):
+            return path
+        root, ext = os.path.splitext(path)
+        alt = root + (".ai" if ext.lower() == ".pdf" else ".pdf")
+        return alt if os.path.isfile(alt) else ""
+
+    search_names = [base]
+    if "-vp" in base.lower():
+        no_vp = re.sub(r"[\s_-]*-vp\b", "", base, flags=re.I)
+        no_vp = re.sub(r"\s+", " ", no_vp).strip()
+        no_vp = re.sub(r"\s+\.", ".", no_vp)
+        if no_vp not in search_names:
+            search_names.append(no_vp)
+
+    folder = os.path.dirname(template_path)
+    for candidate in search_names:
+        resolved = resolve(os.path.join(folder, candidate))
+        if resolved:
+            return resolved
+    return ""
 
 
 def extract_paper_type(path: str) -> str:
