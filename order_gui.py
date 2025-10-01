@@ -546,64 +546,82 @@ def move_art_to_folder(order_dir: str) -> int:
     Returns the number of files moved into the ``art`` subfolder.
     """
 
-    if not os.path.isdir(order_dir):
+    order_path = Path(order_dir)
+    if not order_path.is_dir():
         return 0
 
     try:
-        entries = os.listdir(order_dir)
+        entries = os.listdir(order_path)
     except Exception:
         traceback.print_exc()
         return 0
 
-    extracted = False
+    art_dir = order_path / "art"
+    try:
+        art_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        traceback.print_exc()
+        return 0
+
     for name in list(entries):
         if not name.lower().endswith(".zip"):
             continue
-        zip_path = os.path.join(order_dir, name)
+
+        zip_path = order_path / name
+        stem = Path(name).stem
+        dest_dir = art_dir / stem
+        if dest_dir.exists():
+            counter = 1
+            while True:
+                candidate = art_dir / f"{stem}_{counter}"
+                if not candidate.exists():
+                    dest_dir = candidate
+                    break
+                counter += 1
+
+        created_dir = not dest_dir.exists()
         try:
+            if created_dir:
+                dest_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(order_dir)
-            os.remove(zip_path)
-            extracted = True
+                zf.extractall(dest_dir)
+            zip_path.unlink()
+            entries.remove(name)
         except Exception:
             traceback.print_exc()
+            if created_dir:
+                shutil.rmtree(dest_dir, ignore_errors=True)
 
-    if extracted:
-        try:
-            entries = os.listdir(order_dir)
-        except Exception:
-            traceback.print_exc()
-            entries = []
-
-    art_dir = os.path.join(order_dir, "art")
     moved = 0
     for name in entries:
         lower = name.lower()
         if not lower.endswith((".ai", ".pdf")):
             continue
-        src = os.path.join(order_dir, name)
-        if not os.path.isfile(src):
+
+        src = order_path / name
+        if not src.is_file():
             continue
-        dest = os.path.join(art_dir, name)
-        if os.path.abspath(src) == os.path.abspath(dest):
+
+        dest = art_dir / name
+        try:
+            if src.resolve() == dest.resolve():
+                continue
+        except Exception:
+            traceback.print_exc()
             continue
-        if not os.path.isdir(art_dir):
-            try:
-                os.makedirs(art_dir, exist_ok=True)
-            except Exception:
-                traceback.print_exc()
-                break
-        if os.path.exists(dest):
-            stem, ext = os.path.splitext(name)
+
+        if dest.exists():
+            stem = src.stem
+            ext = src.suffix
             counter = 1
             while True:
-                candidate = os.path.join(art_dir, f"{stem}_{counter}{ext}")
-                if not os.path.exists(candidate):
+                candidate = art_dir / f"{stem}_{counter}{ext}"
+                if not candidate.exists():
                     dest = candidate
                     break
                 counter += 1
         try:
-            shutil.move(src, dest)
+            shutil.move(str(src), str(dest))
             moved += 1
         except Exception:
             traceback.print_exc()
