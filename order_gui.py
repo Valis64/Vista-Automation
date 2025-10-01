@@ -383,6 +383,7 @@ def find_art_file(
     month_dir: str = "",
     order_id: str = "",
     name_hint: str = "",
+    template_code: str = "",
 ) -> str:
     """Locate an artwork file using an ``art_id`` or optional ``name_hint``.
 
@@ -400,6 +401,75 @@ def find_art_file(
             search_dirs.append(order_path)
     if root:
         search_dirs.append(root)
+
+    template_code = template_code or ""
+    template_upper = template_code.upper()
+
+    def normalize_label(text: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+    def pick_first_art_file(folder: str) -> str:
+        best_pdf = ""
+        for dirpath, _, files in os.walk(folder):
+            for name in sorted(files, key=str.lower):
+                low = name.lower()
+                full = os.path.join(dirpath, name)
+                if low.endswith(".ai"):
+                    return full
+                if low.endswith(".pdf") and not best_pdf:
+                    best_pdf = full
+        return best_pdf
+
+    def find_tray_sleeve_page(art_folder: str, page_name: str) -> str:
+        target_norm = normalize_label(page_name)
+        best_pdf = ""
+        try:
+            entries = sorted(os.listdir(art_folder))
+        except OSError:
+            return ""
+        for entry in entries:
+            full = os.path.join(art_folder, entry)
+            if os.path.isfile(full):
+                base_norm = normalize_label(os.path.splitext(entry)[0])
+                if base_norm.startswith(target_norm):
+                    low = entry.lower()
+                    if low.endswith(".ai"):
+                        return full
+                    if low.endswith(".pdf") and not best_pdf:
+                        best_pdf = full
+        for entry in entries:
+            full = os.path.join(art_folder, entry)
+            if os.path.isdir(full):
+                dir_norm = normalize_label(entry)
+                if dir_norm.startswith(target_norm):
+                    candidate = pick_first_art_file(full)
+                    if candidate:
+                        return candidate
+        for dirpath, _, files in os.walk(art_folder):
+            dir_norm = normalize_label(os.path.basename(dirpath))
+            if dir_norm.startswith(target_norm):
+                candidate = pick_first_art_file(dirpath)
+                if candidate:
+                    return candidate
+            for name in files:
+                base_norm = normalize_label(os.path.splitext(name)[0])
+                if base_norm.startswith(target_norm):
+                    full = os.path.join(dirpath, name)
+                    low = name.lower()
+                    if low.endswith(".ai"):
+                        return full
+                    if low.endswith(".pdf") and not best_pdf:
+                        best_pdf = full
+        return best_pdf
+
+    if template_upper.startswith("P") and art_id:
+        page_label = "Page 2" if template_upper.endswith("B") else "Page 1"
+        for sroot in search_dirs:
+            art_folder = os.path.join(sroot, art_id)
+            if os.path.isdir(art_folder):
+                page = find_tray_sleeve_page(art_folder, page_label)
+                if page:
+                    return page
 
     art_id_l = art_id.lower()
     name_hint_l = name_hint.lower()
@@ -2594,7 +2664,13 @@ class App:
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
             order_id = it.get("order_id", self.order_id_var.get())
-            art_path = find_art_file(art_root, art_id, month_root, order_id)
+            art_path = find_art_file(
+                art_root,
+                art_id,
+                month_root,
+                order_id,
+                template_code=template,
+            )
             temp_path = find_template_file(temp_root, template)
             paper = extract_paper_type(temp_path)
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
@@ -2712,6 +2788,20 @@ class App:
         items = self.items if self.items else self.batch_items
         pairs = self.pairs if self.pairs else self.batch_pairs
         count = max(len(items), len(pairs))
+
+        def get_art_folder(path: str, art_id: str) -> str:
+            if not path or not art_id:
+                return ""
+            art_lower = art_id.lower()
+            try:
+                parts = Path(path).parents
+            except Exception:
+                return ""
+            for parent in parts:
+                if parent.name.lower() == art_lower:
+                    return str(parent)
+            return ""
+
         for i in range(count):
             item = items[i] if i < len(items) else {}
             pair = pairs[i] if i < len(pairs) else {}
@@ -2719,11 +2809,22 @@ class App:
             month_dir = item.get("month_dir", self.month_dir_var.get())
             order_id = item.get("order_id", self.order_id_var.get())
             art_id = pair.get("art_id", "")
+            template_code = pair.get("template", "")
             name_hint = sanitize_filename_base(os.path.splitext(item.get("filename", ""))[0])
-            path = find_art_file(art_root, art_id, month_dir, order_id, name_hint)
+            path = find_art_file(
+                art_root,
+                art_id,
+                month_dir,
+                order_id,
+                name_hint=name_hint,
+                template_code=template_code,
+            )
             dir_path = ""
             if path:
                 dir_path = os.path.dirname(path)
+                art_folder = get_art_folder(path, art_id)
+                if art_folder:
+                    dir_path = art_folder
             else:
                 potential = os.path.join(month_dir, str(order_id), "art")
                 if os.path.isdir(potential):
@@ -3146,6 +3247,23 @@ class App:
         flat_paths = []
         flat_info: list[tuple[str, str, int, str, str, str, str, str]] = []
         order_counts: dict[str, int] = {}
+
+        def resolve_order_root(path: str) -> str:
+            if not path:
+                return ""
+            try:
+                parents = Path(path).parents
+            except Exception:
+                parents = []
+            for parent in parents:
+                if parent.name.lower() == "art":
+                    return str(parent.parent)
+            if len(parents) >= 2:
+                return str(parents[1])
+            if parents:
+                return str(parents[0])
+            return os.path.dirname(os.path.dirname(path))
+
         for idx, it in enumerate(items):
             art_id = ""
             template = ""
@@ -3158,7 +3276,13 @@ class App:
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
-            art_path = find_art_file(art_root, art_id, month_root, order_id)
+            art_path = find_art_file(
+                art_root,
+                art_id,
+                month_root,
+                order_id,
+                template_code=template,
+            )
             qty = get_item_quantity(it)
             sample = qty == 11
             temp_path = find_template_file(temp_root, template, sample=sample)
@@ -3171,27 +3295,28 @@ class App:
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
             flat_path = ""
             if art_path and filename_base:
-                dest_root = os.path.dirname(os.path.dirname(art_path))
-                folder = "--DO NOT USE - PRINT--" if self.diagnostic_var.get() else "print"
-                flat_path = os.path.join(dest_root, folder, f"{filename_base}_flat_{paper}.pdf")
-                flat_paths.append(flat_path)
-                order_counts[order_id] = order_counts.get(order_id, 0) + 1
-                glue = it.get("gluetab", "")
-                flat_info.append(
-                    (
-                        flat_path,
-                        order_id,
-                        order_counts[order_id],
-                        art_id,
-                        glue,
-                        template,
-                        lam,
-                        art_path,
+                dest_root = resolve_order_root(art_path)
+                if dest_root:
+                    folder = "--DO NOT USE - PRINT--" if self.diagnostic_var.get() else "print"
+                    flat_path = os.path.join(dest_root, folder, f"{filename_base}_flat_{paper}.pdf")
+                    flat_paths.append(flat_path)
+                    order_counts[order_id] = order_counts.get(order_id, 0) + 1
+                    glue = it.get("gluetab", "")
+                    flat_info.append(
+                        (
+                            flat_path,
+                            order_id,
+                            order_counts[order_id],
+                            art_id,
+                            glue,
+                            template,
+                            lam,
+                            art_path,
+                        )
                     )
-                )
-                if sample:
-                    cut_src = cut_file_for_template(temp_path)
-                    self.sample_copy_info.append((cut_src, os.path.join(dest_root, folder)))
+                    if sample:
+                        cut_src = cut_file_for_template(temp_path)
+                        self.sample_copy_info.append((cut_src, os.path.join(dest_root, folder)))
             pairs_data.append({
                 "art_id": art_id,
                 "template": template,
