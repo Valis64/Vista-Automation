@@ -817,9 +817,26 @@ def move_art_to_folder(order_dir: str) -> tuple[int, int]:
         except Exception:
             traceback.print_exc()
             continue
-        dest_dir = unique_path(art_dir, os.path.basename(extract_dir))
+        move_source = extract_dir
+        cleanup_wrapper = False
         try:
-            shutil.move(extract_dir, dest_dir)
+            extracted_items = os.listdir(extract_dir)
+        except Exception:
+            extracted_items = []
+        if len(extracted_items) == 1:
+            inner_name = extracted_items[0]
+            inner_path = os.path.join(extract_dir, inner_name)
+            if os.path.isdir(inner_path):
+                move_source = inner_path
+                cleanup_wrapper = True
+        dest_dir = unique_path(art_dir, os.path.basename(move_source))
+        try:
+            shutil.move(move_source, dest_dir)
+            if cleanup_wrapper:
+                try:
+                    os.rmdir(extract_dir)
+                except Exception:
+                    traceback.print_exc()
             zip_count += 1
         except Exception:
             traceback.print_exc()
