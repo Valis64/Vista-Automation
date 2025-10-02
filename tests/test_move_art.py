@@ -16,10 +16,12 @@ class MoveArtTest(unittest.TestCase):
             open(art1, "w").close()
             open(art2, "w").close()
 
-            moved = move_art_to_folder(order_dir)
+            result = move_art_to_folder(order_dir)
 
             art_dir = os.path.join(order_dir, "art")
-            self.assertEqual(moved, 2)
+            self.assertEqual(result.moved, 2)
+            self.assertEqual(result.extracted_files, 0)
+            self.assertEqual(result.extracted_archives, 0)
             self.assertTrue(os.path.isdir(art_dir))
             self.assertTrue(os.path.isfile(os.path.join(art_dir, "sample.ai")))
             self.assertTrue(os.path.isfile(os.path.join(art_dir, "extra.pdf")))
@@ -32,11 +34,13 @@ class MoveArtTest(unittest.TestCase):
             with zipfile.ZipFile(zip_path, "w") as zf:
                 zf.writestr("file.txt", "content")
 
-            moved = move_art_to_folder(order_dir)
+            result = move_art_to_folder(order_dir)
 
             art_dir = os.path.join(order_dir, "art")
             extracted_file = os.path.join(art_dir, "bundle", "file.txt")
-            self.assertEqual(moved, 0)
+            self.assertEqual(result.moved, 0)
+            self.assertEqual(result.extracted_files, 1)
+            self.assertEqual(result.extracted_archives, 1)
             self.assertTrue(os.path.isdir(os.path.join(art_dir, "bundle")))
             self.assertTrue(os.path.isfile(extracted_file))
             self.assertFalse(os.path.exists(zip_path))

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import traceback
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -610,28 +611,39 @@ def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = N
     return written
 
 
-def move_art_to_folder(order_dir: str) -> int:
+@dataclass
+class MoveArtResult:
+    moved: int = 0
+    extracted_files: int = 0
+    extracted_archives: int = 0
+
+
+def move_art_to_folder(order_dir: str) -> MoveArtResult:
     """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns the number of files moved into the ``art`` subfolder.
+    Returns a :class:`MoveArtResult` describing how many files were moved into
+    the ``art`` subfolder as well as how many ZIP archives and files were
+    extracted.
     """
 
     order_path = Path(order_dir)
     if not order_path.is_dir():
-        return 0
+        return MoveArtResult()
 
     try:
         entries = os.listdir(order_path)
     except Exception:
         traceback.print_exc()
-        return 0
+        return MoveArtResult()
 
     art_dir = order_path / "art"
     try:
         art_dir.mkdir(parents=True, exist_ok=True)
     except Exception:
         traceback.print_exc()
-        return 0
+        return MoveArtResult()
+
+    result = MoveArtResult()
 
     for name in list(entries):
         if not name.lower().endswith(".zip"):
@@ -654,15 +666,17 @@ def move_art_to_folder(order_dir: str) -> int:
             if created_dir:
                 dest_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(zip_path) as zf:
+                members = [info for info in zf.infolist() if not info.is_dir()]
                 zf.extractall(dest_dir)
+                result.extracted_files += len(members)
             zip_path.unlink()
             entries.remove(name)
+            result.extracted_archives += 1
         except Exception:
             traceback.print_exc()
             if created_dir:
                 shutil.rmtree(dest_dir, ignore_errors=True)
 
-    moved = 0
     for name in entries:
         lower = name.lower()
         if not lower.endswith((".ai", ".pdf")):
@@ -692,10 +706,10 @@ def move_art_to_folder(order_dir: str) -> int:
                 counter += 1
         try:
             shutil.move(str(src), str(dest))
-            moved += 1
+            result.moved += 1
         except Exception:
             traceback.print_exc()
-    return moved
+    return result
 
 
 def parse_queue(html: str) -> list[str]:
@@ -2844,7 +2858,9 @@ class App:
             messagebox.showerror("Error", "Set month folder first")
             return
         items = self.items if self.items else self.batch_items
-        moved = 0
+        total_moved = 0
+        total_extracted_files = 0
+        total_archives = 0
         seen: set[str] = set()
         for it in items:
             order_id = str(it.get("order_id", self.order_id_var.get())).strip()
@@ -2852,14 +2868,54 @@ class App:
                 continue
             seen.add(order_id)
             order_dir = os.path.join(month_root, order_id)
-            moved += move_art_to_folder(order_dir)
-        messagebox.showinfo(
-            "Extract & Move Art",
-            (
-                "Extracted archives (if any) and moved "
-                f"{moved} file{'s' if moved != 1 else ''} into art folders."
-            ),
+            result = move_art_to_folder(order_dir)
+            total_moved += result.moved
+            total_extracted_files += result.extracted_files
+            total_archives += result.extracted_archives
+        self._show_extract_summary(
+            total_moved, total_extracted_files, total_archives
         )
+
+    def _show_extract_summary(
+        self, moved: int, extracted_files: int, extracted_archives: int
+    ):
+        """Show a modal summary dialog for the extract & move action."""
+
+        win = tk.Toplevel(self.root)
+        win.title("Extract & Move Art")
+        win.transient(self.root)
+        win.grab_set()
+        frame = tk.Frame(win, padx=15, pady=15)
+        frame.pack(fill="both", expand=True)
+
+        lines = [
+            f"Moved {moved} file{'s' if moved != 1 else ''} into art folders.",
+            (
+                "Extracted "
+                f"{extracted_files} file{'s' if extracted_files != 1 else ''} "
+                "into new folders."
+            ),
+            (
+                "Extracted "
+                f"{extracted_archives} ZIP file{'s' if extracted_archives != 1 else ''}."
+            ),
+        ]
+        for text in lines:
+            tk.Label(frame, text=text).pack(anchor="w", pady=(0, 2))
+
+        tk.Label(
+            frame,
+            text=".zip files were deleted after extraction.",
+            fg="red",
+        ).pack(anchor="w", pady=(8, 2))
+
+        btn = ttk.Button(frame, text="OK", command=win.destroy)
+        btn.pack(anchor="e", pady=(12, 0))
+        btn.focus_set()
+
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        self.root.wait_window(win)
 
     def _arrange_windows(self, paths: list[str]):
         """Arrange folder windows in a grid if pygetwindow is available."""
