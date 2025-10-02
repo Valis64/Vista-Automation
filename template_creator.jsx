@@ -1360,13 +1360,46 @@ function processPair(pair, index) {
     var artDir = pair.artFile.parent;
     var destRoot = artDir ? artDir.parent : null;
     if (orderData.filename) {
-        if (destRoot) {
-            var folderName = DIAGNOSTIC_MODE ? '--DO NOT USE - PRINT--' : PRINT_FOLDER_NAME;
-            var printFolder = new Folder(destRoot.fsName + '/' + folderName);
-            if (!printFolder.exists) printFolder.create();
-            baseName = printFolder.fsName + '/' + orderData.filename.replace(/\.pdf$/i, '');
+        var sanitizedName = orderData.filename.replace(/\.pdf$/i, '');
+        var folderName = DIAGNOSTIC_MODE ? '--DO NOT USE - PRINT--' : PRINT_FOLDER_NAME;
+        var printFolder = null;
+
+        // Detect paired page structure (PO1/PO1B) so exports land in the job root.
+        var pageFile = pair.artFile;
+        if (pageFile && pageFile.parent && pageFile.parent.parent && pageFile.parent.parent.parent) {
+            var pageDir = pageFile.parent;
+            var pageDirName = String(pageDir.name || '').toLowerCase();
+            var fileLower = String(pageFile.name || '').toLowerCase();
+            var nameLower = sanitizedName.toLowerCase();
+            var isPairedJob = false;
+
+            if (pageDirName.indexOf('po') === 0 || pageDirName.indexOf('page') === 0) {
+                isPairedJob = true;
+            } else if (fileLower.indexOf('page1') !== -1 || fileLower.indexOf('page2') !== -1) {
+                isPairedJob = true;
+            } else if (nameLower.indexOf('_po') !== -1 || nameLower.indexOf(' po') !== -1) {
+                isPairedJob = true;
+            }
+
+            if (isPairedJob) {
+                var pairedRoot = pageDir.parent && pageDir.parent.parent ? pageDir.parent.parent : null;
+                if (pairedRoot) {
+                    printFolder = new Folder(pairedRoot.fsName + '/' + folderName);
+                }
+            }
+        }
+
+        if (!printFolder && destRoot) {
+            printFolder = new Folder(destRoot.fsName + '/' + folderName);
+        }
+
+        if (printFolder) {
+            if (!printFolder.exists) {
+                try { printFolder.create(); } catch (e) {}
+            }
+            baseName = printFolder.fsName + '/' + sanitizedName;
         } else {
-            baseName = pair.templateFile.path + '/' + orderData.filename.replace(/\.pdf$/i, '');
+            baseName = pair.templateFile.path + '/' + sanitizedName;
         }
     } else {
         var saveFile = File.saveDialog('Save print file as', '*.pdf');
