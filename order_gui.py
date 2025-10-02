@@ -639,13 +639,14 @@ def find_template_file(root: str, template: str, sample: bool = False) -> str:
     if not root or not template:
         return ""
     tmpl_l = template.lower()
+    tmpl_pattern = re.compile(rf"{re.escape(tmpl_l)}(?![0-9a-z])")
     candidates: list[tuple[int, str]] = []
     for dirpath, _, files in os.walk(root):
         for name in files:
             low = name.lower()
             if (
                 low.endswith((".ai", ".pdf"))
-                and tmpl_l in low
+                and tmpl_pattern.search(low)
                 and "_print" in low
                 and "-vp" in low
             ):

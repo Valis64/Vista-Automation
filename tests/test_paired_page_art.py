@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from order_gui import resolve_paired_page_art
+from order_gui import resolve_paired_page_art, find_template_file
 
 
 class ResolvePairedPageArtTests(unittest.TestCase):
@@ -120,6 +120,20 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(assignments.get(0), page1)
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
+
+    def test_find_template_prefers_exact_template_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            po1_path = os.path.join(tmp, "PO1_print 10in -vp.ai")
+            po1b_path = os.path.join(tmp, "PO1B_print 09in -vp.ai")
+
+            with open(po1_path, "w", encoding="utf-8"):
+                pass
+            with open(po1b_path, "w", encoding="utf-8"):
+                pass
+
+            result = find_template_file(tmp, "PO1")
+
+            self.assertEqual(result, po1_path)
 
 
 if __name__ == "__main__":
