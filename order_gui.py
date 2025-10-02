@@ -82,6 +82,9 @@ CANCEL_FILE = "jsx_cancel.flag"
 SUMMARY_DIR = APP_DIR / "temp" / "summary"
 PAPER_SUMMARY_DIR = APP_DIR / "temp" / "paper types summary"
 
+PRINT_FOLDER_NAME = "print"
+DIAGNOSTIC_PRINT_FOLDER_NAME = "--DO NOT USE - PRINT--"
+
 
 def ensure_summary_dir():
     """Create summary directory and remove files older than 90 days."""
@@ -104,6 +107,42 @@ def ensure_paper_summary_dir():
                 f.unlink()
         except Exception:
             pass
+
+
+def resolve_print_output_folder(
+    art_path: str,
+    template_code: str = "",
+    template_filename: str = "",
+    *,
+    diagnostic: bool = False,
+) -> str:
+    """Determine the print export folder for a given art/template combination."""
+
+    if not art_path:
+        return ""
+
+    path = Path(art_path)
+    parents = path.parents
+
+    code = (template_code or "").strip()
+    name = (template_filename or "").strip()
+
+    is_p_template = code.upper().startswith("P") if code else False
+    if not is_p_template and name:
+        is_p_template = Path(name).name.upper().startswith("P")
+
+    target_index = 2 if is_p_template else 1
+
+    try:
+        root = parents[target_index]
+    except IndexError:
+        if parents:
+            root = parents[len(parents) - 1]
+        else:
+            root = path.parent
+
+    folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
+    return str(root / folder_name)
 
 
 SETTINGS_FILE = "settings.json"
@@ -3419,9 +3458,16 @@ class App:
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
             flat_path = ""
             if art_path and filename_base:
-                dest_root = os.path.dirname(os.path.dirname(art_path))
-                folder = "--DO NOT USE - PRINT--" if self.diagnostic_var.get() else "print"
-                flat_path = os.path.join(dest_root, folder, f"{filename_base}_flat_{paper}.pdf")
+                print_folder = resolve_print_output_folder(
+                    art_path,
+                    template,
+                    os.path.basename(temp_path) if temp_path else "",
+                    diagnostic=self.diagnostic_var.get(),
+                )
+                flat_path = os.path.join(
+                    print_folder,
+                    f"{filename_base}_flat_{paper}.pdf",
+                )
                 order_counts[order_id] = order_counts.get(order_id, 0) + 1
                 glue = it.get("gluetab", "")
                 flat_entries.append(
@@ -3446,7 +3492,7 @@ class App:
                         (
                             len(raw_pairs),
                             cut_src,
-                            os.path.join(dest_root, folder),
+                            print_folder,
                         )
                     )
             entry = {
