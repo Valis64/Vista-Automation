@@ -404,6 +404,11 @@ def find_art_file(
         search_dirs.append(root)
 
     template_upper = (template_code or "").strip().upper()
+    template_token = ""
+    if template_upper:
+        token_parts = re.split(r"[^A-Z0-9]+", template_upper, maxsplit=1)
+        if token_parts and token_parts[0]:
+            template_token = token_parts[0]
 
     def normalize_label(text: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", text.lower())
@@ -462,8 +467,9 @@ def find_art_file(
                         best_pdf = full
         return best_pdf
 
-    if template_upper.startswith("P") and art_id:
-        page_label = "Page 2" if template_upper.endswith("B") else "Page 1"
+    if (template_token or template_upper).startswith("P") and art_id:
+        effective_code = template_token or template_upper
+        page_label = "Page 2" if effective_code.endswith("B") else "Page 1"
         for sroot in search_dirs:
             art_folder = os.path.join(sroot, art_id)
             if os.path.isdir(art_folder):

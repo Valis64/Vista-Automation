@@ -60,6 +60,23 @@ class FindArtFileTest(unittest.TestCase):
             self.assertEqual(front, page1_file)
             self.assertEqual(back, page2_file)
 
+    def test_tray_sleeve_template_suffix_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            art_root = os.path.join(tmp, "art_root")
+            art_id = "TS5005"
+            art_dir = os.path.join(art_root, art_id)
+            os.makedirs(art_dir)
+            page1_file = os.path.join(art_dir, "page1.pdf")
+            page2_file = os.path.join(art_dir, "page2.pdf")
+            open(page1_file, "w").close()
+            open(page2_file, "w").close()
+
+            front = find_art_file(art_root, art_id, template_code="PO1 (Sleeve)")
+            back = find_art_file(art_root, art_id, template_code="PO1B (Tray)")
+
+            self.assertEqual(front, page1_file)
+            self.assertEqual(back, page2_file)
+
     def test_tray_sleeve_pages_from_art_root(self):
         with tempfile.TemporaryDirectory() as tmp:
             art_root = os.path.join(tmp, "art_root")
