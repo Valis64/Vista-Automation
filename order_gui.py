@@ -9,6 +9,7 @@ import sys
 import traceback
 import zipfile
 from pathlib import Path
+from typing import Callable, Sequence
 from urllib.parse import urljoin
 
 import tkinter as tk
@@ -414,6 +415,180 @@ def find_art_file(
                 if name_hint and name_hint_l in low:
                     return os.path.join(dirpath, name)
     return ""
+
+
+def resolve_paired_page_art(
+    entries: Sequence[dict],
+    contexts: Sequence[dict],
+    logger: Callable[[str], None],
+) -> tuple[dict[int, str], set[int]]:
+    """Assign PAGE1/PAGE2 files from extracted ZIP folders to P templates."""
+
+    assignments: dict[int, str] = {}
+    skips: set[int] = set()
+
+    if logger is None:
+        logger = lambda _: None  # type: ignore[assignment]
+
+    limit = min(len(entries), len(contexts))
+    if limit == 0:
+        return assignments, skips
+
+    def collect_search_dirs(ctx: dict) -> list[str]:
+        dirs: list[str] = []
+        art_path = ctx.get("art_path") or ""
+        if art_path:
+            if os.path.isdir(art_path):
+                dirs.append(art_path)
+            else:
+                parent = os.path.dirname(art_path)
+                if parent:
+                    dirs.append(parent)
+        art_root = ctx.get("art_root") or ""
+        if art_root:
+            dirs.append(art_root)
+        month_root = ctx.get("month_root") or ""
+        order_id = ctx.get("order_id") or ""
+        if month_root and order_id:
+            dirs.append(os.path.join(month_root, str(order_id), "art"))
+        extra = ctx.get("search_dirs")
+        if isinstance(extra, (list, tuple, set)):
+            dirs.extend(str(d) for d in extra if d)
+        elif extra:
+            dirs.append(str(extra))
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for path in dirs:
+            norm = os.path.abspath(path)
+            if norm in seen:
+                continue
+            seen.add(norm)
+            ordered.append(path)
+        return ordered
+
+    def find_page(folder: str, number: int) -> str:
+        target = f"page{number}.pdf"
+        target_l = target.lower()
+        try:
+            for name in os.listdir(folder):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path) and name.lower() == target_l:
+                    return path
+        except Exception:
+            return ""
+        return ""
+
+    def has_page(folder: str) -> bool:
+        return bool(find_page(folder, 1) or find_page(folder, 2))
+
+    def locate_folder(base_code: str, indices: list[int]) -> str:
+        base_lower = base_code.lower()
+        for idx in indices:
+            if idx >= limit:
+                continue
+            ctx = contexts[idx]
+            art_path = ctx.get("art_path") or ""
+            art_id = str(ctx.get("art_id") or "")
+            art_id_l = art_id.lower()
+            if art_path:
+                if os.path.isdir(art_path) and has_page(art_path):
+                    return art_path
+                if os.path.isfile(art_path):
+                    parent = os.path.dirname(art_path)
+                    if os.path.isdir(parent) and has_page(parent):
+                        return parent
+            for root in collect_search_dirs(ctx):
+                if not os.path.isdir(root):
+                    continue
+                root_name = os.path.basename(root.rstrip(os.sep)).lower()
+                if art_id_l and art_id_l in root_name and has_page(root):
+                    return root
+                if base_lower and base_lower in root_name and has_page(root):
+                    return root
+                try:
+                    for name in os.listdir(root):
+                        candidate = os.path.join(root, name)
+                        if not os.path.isdir(candidate):
+                            continue
+                        low = name.lower()
+                        if art_id_l and art_id_l in low and has_page(candidate):
+                            return candidate
+                        if base_lower in low and has_page(candidate):
+                            return candidate
+                except Exception:
+                    continue
+        return ""
+
+    pair_map: dict[str, dict[str, int | None]] = {}
+    for idx in range(limit):
+        template = str(entries[idx].get("template", "") or "").strip().upper()
+        if not template.startswith("P"):
+            continue
+        is_mate = template.endswith("B") and len(template) > 1
+        base_code = template[:-1] if is_mate else template
+        info = pair_map.setdefault(base_code, {"base": None, "mate": None})
+        if is_mate:
+            if info.get("mate") is None:
+                info["mate"] = idx
+        else:
+            if info.get("base") is None:
+                info["base"] = idx
+
+    for base_code, info in pair_map.items():
+        base_idx = info.get("base")
+        mate_idx = info.get("mate")
+        mate_template = (
+            entries[mate_idx].get("template", "")
+            if mate_idx is not None and mate_idx < len(entries)
+            else ""
+        )
+        if mate_idx is None:
+            logger(
+                f"Warning: P pair {base_code} missing mate template; expected {base_code}B."
+            )
+        indices = [i for i in (base_idx, mate_idx) if i is not None]
+        if not indices:
+            continue
+        art_id = ""
+        for idx in indices:
+            if idx >= limit:
+                continue
+            art_id = str(contexts[idx].get("art_id") or art_id)
+            if art_id:
+                break
+        folder = locate_folder(base_code, indices)
+        mate_label = mate_template or "missing"
+        if folder:
+            logger(
+                f"Resolved zip folder for P pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
+            )
+            page1 = find_page(folder, 1)
+            page2 = find_page(folder, 2)
+            if base_idx is not None and base_idx < len(entries):
+                if page1:
+                    assignments[base_idx] = page1
+                else:
+                    logger(
+                        f"Warning: page1.pdf not found for {base_code} in {folder}; skipping template {entries[base_idx].get('template', base_code)}."
+                    )
+                    skips.add(base_idx)
+            if mate_idx is not None and mate_idx < len(entries):
+                if page2:
+                    assignments[mate_idx] = page2
+                else:
+                    logger(
+                        f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
+                    )
+                    skips.add(mate_idx)
+        else:
+            logger(
+                f"Error: could not locate extracted folder for P pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
+            )
+            for idx in indices:
+                if idx is not None:
+                    skips.add(idx)
+
+    return assignments, skips
 
 
 def find_template_file(root: str, template: str, sample: bool = False) -> str:
@@ -2608,7 +2783,8 @@ class App:
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
         items = self.get_selected_items()
-        pairs_data = []
+        raw_pairs: list[dict] = []
+        pair_contexts: list[dict] = []
         for idx, it in enumerate(items):
             art_id = ""
             template = ""
@@ -2626,7 +2802,7 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
-            pairs_data.append(
+            raw_pairs.append(
                 {
                     "art_id": art_id,
                     "template": template,
@@ -2636,6 +2812,32 @@ class App:
                     "lamType": lam,
                 }
             )
+            pair_contexts.append(
+                {
+                    "art_id": art_id,
+                    "art_root": art_root,
+                    "month_root": month_root,
+                    "order_id": order_id,
+                    "art_path": art_path,
+                    "template": template,
+                }
+            )
+
+        assignments, skip_indices = resolve_paired_page_art(
+            raw_pairs, pair_contexts, self.log_message
+        )
+
+        pairs_data: list[dict] = []
+        for idx, entry in enumerate(raw_pairs):
+            if idx in skip_indices:
+                continue
+            if idx in assignments:
+                entry = dict(entry)
+                entry["art_path"] = assignments[idx]
+            pairs_data.append(entry)
+
+        if skip_indices:
+            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
         save_order_data(
             {
                 "items": items,
@@ -3184,10 +3386,13 @@ class App:
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
 
-        pairs_data = []
-        pair_orders = []
-        flat_paths = []
-        flat_info: list[tuple[str, str, int, str, str, str, str, str]] = []
+        raw_pairs: list[dict] = []
+        pair_orders_src: list[str] = []
+        pair_contexts: list[dict] = []
+        flat_entries: list[
+            tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
+        ] = []
+        sample_entries: list[tuple[int, str, str]] = []
         order_counts: dict[str, int] = {}
         for idx, it in enumerate(items):
             art_id = ""
@@ -3217,25 +3422,34 @@ class App:
                 dest_root = os.path.dirname(os.path.dirname(art_path))
                 folder = "--DO NOT USE - PRINT--" if self.diagnostic_var.get() else "print"
                 flat_path = os.path.join(dest_root, folder, f"{filename_base}_flat_{paper}.pdf")
-                flat_paths.append(flat_path)
                 order_counts[order_id] = order_counts.get(order_id, 0) + 1
                 glue = it.get("gluetab", "")
-                flat_info.append(
+                flat_entries.append(
                     (
+                        len(raw_pairs),
                         flat_path,
-                        order_id,
-                        order_counts[order_id],
-                        art_id,
-                        glue,
-                        template,
-                        lam,
-                        art_path,
+                        (
+                            flat_path,
+                            order_id,
+                            order_counts[order_id],
+                            art_id,
+                            glue,
+                            template,
+                            lam,
+                            art_path,
+                        ),
                     )
                 )
                 if sample:
                     cut_src = cut_file_for_template(temp_path)
-                    self.sample_copy_info.append((cut_src, os.path.join(dest_root, folder)))
-            pairs_data.append({
+                    sample_entries.append(
+                        (
+                            len(raw_pairs),
+                            cut_src,
+                            os.path.join(dest_root, folder),
+                        )
+                    )
+            entry = {
                 "art_id": art_id,
                 "template": template,
                 "art_path": art_path,
@@ -3244,15 +3458,54 @@ class App:
                 "paperType": paper,
                 "lamType": lam,
                 "order_id": order_id,
-            })
-            pair_orders.append(order_id)
+            }
+            raw_pairs.append(entry)
+            pair_orders_src.append(order_id)
+            pair_contexts.append(
+                {
+                    "art_id": art_id,
+                    "art_root": art_root,
+                    "month_root": month_root,
+                    "order_id": order_id,
+                    "art_path": art_path,
+                    "template": template,
+                }
+            )
 
-        self.pending_flat_paths = [p for p in flat_paths if p]
-        self.pending_flat_info = [
-            (p, oid, num, aid, glue, templ, lam, art_path)
-            for (p, oid, num, aid, glue, templ, lam, art_path) in flat_info
-            if p
+        assignments, skip_indices = resolve_paired_page_art(
+            raw_pairs, pair_contexts, self.log_message
+        )
+
+        pairs_data: list[dict] = []
+        pair_orders: list[str] = []
+        for idx, entry in enumerate(raw_pairs):
+            if idx in skip_indices:
+                continue
+            if idx in assignments:
+                entry = dict(entry)
+                entry["art_path"] = assignments[idx]
+            pairs_data.append(entry)
+            pair_orders.append(pair_orders_src[idx])
+
+        self.sample_copy_info.extend(
+            (cut_src, dest)
+            for idx, cut_src, dest in sample_entries
+            if cut_src and idx not in skip_indices
+        )
+
+        self.pending_flat_paths = [
+            flat_path
+            for idx, flat_path, _ in flat_entries
+            if flat_path and idx not in skip_indices
         ]
+        self.pending_flat_info = [
+            info
+            for idx, _, info in flat_entries
+            if info[0] and idx not in skip_indices
+        ]
+
+        if skip_indices:
+            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
 
         save_order_data(
             {
