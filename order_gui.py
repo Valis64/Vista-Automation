@@ -434,78 +434,26 @@ def find_art_file(
         if cached is not None:
             return cached
 
-        page_terms = {
-            "page1": ["page1", "pg1", "sleeve", "outer", "front"],
-            "page2": ["page2", "pg2", "tray", "inner", "back"],
-        }
+        matches: dict[str, list[str]] = {"page1": [], "page2": []}
 
-        base_norm = normalize_label(base_code)
-        back_norm = normalize_label(base_code + "B") if base_code else ""
-        best: dict[str, tuple[int, int, int, int, str]] = {
-            "page1": (-1, -1, 0, 0, ""),
-            "page2": (-1, -1, 0, 0, ""),
-        }
-        results = {"page1": "", "page2": ""}
-
-        def evaluate(norms: list[str], page_key: str) -> int:
-            if not norms:
-                return -1
-            score = -1
-            terms = page_terms[page_key]
-            for norm in norms:
-                if not norm:
-                    continue
-                for idx, term in enumerate(terms):
-                    if term and norm.startswith(term):
-                        score = max(score, 200 - idx * 5)
-                    elif term and term in norm:
-                        score = max(score, 170 - idx * 5)
-            if page_key == "page1":
-                if base_norm and any(n == base_norm for n in norms):
-                    score = max(score, 160)
-                elif base_norm and any(n.startswith(base_norm) for n in norms):
-                    score = max(score, 140)
-                elif base_norm and any(base_norm in n for n in norms):
-                    score = max(score, 120)
-            else:
-                if back_norm and any(n == back_norm for n in norms):
-                    score = max(score, 175)
-                elif back_norm and any(n.startswith(back_norm) for n in norms):
-                    score = max(score, 160)
-                elif back_norm and any(back_norm in n for n in norms):
-                    score = max(score, 145)
-                if base_norm and any(n == base_norm + "b" for n in norms):
-                    score = max(score, 140)
-                elif base_norm and any(n.startswith(base_norm) and n.endswith("b") for n in norms):
-                    score = max(score, 130)
-            return score
-
-        art_path = Path(art_folder)
         for dirpath, _, files in os.walk(art_folder):
-            dir_norm = normalize_label(os.path.basename(dirpath))
-            depth = len(Path(dirpath).relative_to(art_path).parts)
             for name in files:
                 low = name.lower()
-                if not low.endswith((".ai", ".pdf")):
+                if not low.endswith(".pdf"):
                     continue
-                full = os.path.join(dirpath, name)
                 base = os.path.splitext(name)[0]
                 base_norm_local = normalize_label(base)
-                norms = [base_norm_local]
-                if dir_norm:
-                    norms.append(dir_norm)
-                    norms.append(dir_norm + base_norm_local)
+                if base_norm_local == "page1":
+                    matches["page1"].append(os.path.join(dirpath, name))
+                elif base_norm_local == "page2":
+                    matches["page2"].append(os.path.join(dirpath, name))
 
-                for page_key in ("page1", "page2"):
-                    score = evaluate(norms, page_key)
-                    if score < 0:
-                        continue
-                    fmt_score = 1 if low.endswith(".ai") else 0
-                    candidate = (score, fmt_score, -depth, -len(base_norm_local), full)
-                    if candidate > best[page_key]:
-                        best[page_key] = candidate
-                        results[page_key] = full
+        def pick(paths: list[str]) -> str:
+            if not paths:
+                return ""
+            return sorted(paths, key=lambda p: (len(Path(p).parts), p.lower()))[0]
 
+        results = {"page1": pick(matches["page1"]), "page2": pick(matches["page2"])}
         _TRAY_SLEEVE_CACHE[key] = results
         return results
 
@@ -520,6 +468,7 @@ def find_art_file(
                 page_path = pages.get(page_label, "")
                 if page_path:
                     return page_path
+        return ""
 
     art_id_l = art_id.lower()
     name_hint_l = name_hint.lower()
@@ -3350,24 +3299,96 @@ class App:
         pairs_data = []
         pair_orders = []
         flat_paths = []
-        flat_info: list[tuple[str, str, int, str, str, str, str, str]] = []
+        flat_info: list[dict] = []
         order_counts: dict[str, int] = {}
 
-        def resolve_order_root(path: str) -> str:
+        def analyze_template_code(raw: str) -> tuple[str, str, bool, bool]:
+            upper = (raw or "").strip().upper()
+            token = ""
+            if upper:
+                parts = re.split(r"[^A-Z0-9]+", upper, maxsplit=1)
+                if parts and parts[0]:
+                    token = parts[0]
+            is_p = bool(token) and token.startswith("P")
+            is_b = bool(token) and token.endswith("B")
+            base = token[:-1] if is_b else token
+            return token, base, is_p, is_b
+
+        def resolve_order_root(path: str, template_code: str = "") -> str:
             if not path:
                 return ""
+            template_upper = (template_code or "").strip().upper()
+            template_token = ""
+            if template_upper:
+                parts = re.split(r"[^A-Z0-9]+", template_upper, maxsplit=1)
+                if parts and parts[0]:
+                    template_token = parts[0]
             try:
                 parents = Path(path).parents
             except Exception:
                 parents = []
+            if template_token.startswith("P"):
+                try:
+                    return str(parents[2])
+                except IndexError:
+                    pass
             for parent in parents:
                 if parent.name.lower() == "art":
-                    return str(parent.parent)
+                    try:
+                        return str(parent.parent)
+                    except Exception:
+                        continue
             if len(parents) >= 2:
                 return str(parents[1])
             if parents:
                 return str(parents[0])
             return os.path.dirname(os.path.dirname(path))
+
+        paired_templates: dict[tuple[str, str], dict] = {}
+        for idx, pair in enumerate(pairs_src or []):
+            art_key = (pair.get("art_id") or "").strip().upper()
+            template_raw = pair.get("template", "")
+            token, base_code, is_p_template, is_b_template = analyze_template_code(template_raw)
+            if not (is_p_template and art_key and base_code):
+                continue
+            key = (art_key, base_code)
+            entry = paired_templates.setdefault(
+                key,
+                {
+                    "art_id": art_key,
+                    "base": base_code,
+                    "primary_idx": None,
+                    "mate_idx": None,
+                    "primary_name": "",
+                    "mate_name": "",
+                    "page1_path": "",
+                    "page2_path": "",
+                    "print_root": "",
+                    "logged_art_paths": False,
+                    "logged_mapping": False,
+                    "logged_print_dir": False,
+                },
+            )
+            if is_b_template:
+                entry["mate_idx"] = idx
+                entry["mate_name"] = template_raw
+            else:
+                entry["primary_idx"] = idx
+                entry["primary_name"] = template_raw
+
+        for entry in paired_templates.values():
+            has_primary = entry.get("primary_idx") is not None
+            has_mate = entry.get("mate_idx") is not None
+            if has_primary and not has_mate:
+                mate_code = entry.get("mate_name") or (entry.get("base", "") + "B")
+                self.log_message(
+                    f"[ERROR] Missing mate template {mate_code} for ArtID {entry.get('art_id', '')}"
+                )
+            elif has_mate and not has_primary:
+                primary_code = entry.get("primary_name") or entry.get("base", "")
+                self.log_message(
+                    f"[ERROR] Missing non-B template {primary_code} for ArtID {entry.get('art_id', '')}"
+                )
 
         for idx, it in enumerate(items):
             art_id = ""
@@ -3378,6 +3399,15 @@ class App:
                 order_id = pairs_src[idx].get("order_id", it.get("order_id", self.order_id_var.get()))
             else:
                 order_id = it.get("order_id", self.order_id_var.get())
+
+            art_id_key = art_id.strip().upper()
+            token, base_code, is_p_template, is_b_template = analyze_template_code(template)
+            pair_entry = (
+                paired_templates.get((art_id_key, base_code))
+                if (is_p_template and art_id_key and base_code)
+                else None
+            )
+
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
@@ -3388,6 +3418,40 @@ class App:
                 order_id,
                 template_code=template,
             )
+            if is_p_template and not art_path:
+                expected_name = "page2.pdf" if is_b_template else "page1.pdf"
+                self.log_message(
+                    f"[ERROR] Missing {expected_name} for template {template or token} (ArtID {art_id})"
+                )
+
+            if pair_entry and art_path:
+                if is_b_template:
+                    if not pair_entry.get("page2_path"):
+                        pair_entry["page2_path"] = art_path
+                    if not pair_entry.get("mate_name"):
+                        pair_entry["mate_name"] = template or token
+                else:
+                    if not pair_entry.get("page1_path"):
+                        pair_entry["page1_path"] = art_path
+                    if not pair_entry.get("primary_name"):
+                        pair_entry["primary_name"] = template or token
+
+            if pair_entry and pair_entry.get("page1_path") and pair_entry.get("page2_path"):
+                display_base = pair_entry.get("base") or token
+                primary_name = pair_entry.get("primary_name") or display_base
+                mate_name = pair_entry.get("mate_name") or (display_base + "B")
+                if not pair_entry.get("logged_art_paths"):
+                    self.log_message(
+                        f"[INFO] Resolved artwork for {primary_name}/{mate_name} (ArtID {art_id}): "
+                        f"page1={pair_entry['page1_path']}, page2={pair_entry['page2_path']}"
+                    )
+                    pair_entry["logged_art_paths"] = True
+                if not pair_entry.get("logged_mapping"):
+                    self.log_message(
+                        f"[INFO] Confirmed mapping: {primary_name} ⇐ page1.pdf, {mate_name} ⇐ page2.pdf"
+                    )
+                    pair_entry["logged_mapping"] = True
+
             qty = get_item_quantity(it)
             sample = qty == 11
             temp_path = find_template_file(temp_root, template, sample=sample)
@@ -3396,50 +3460,83 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
-            # Determine expected flat PDF path for review
+
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
             flat_path = ""
+            glue = it.get("gluetab", "")
+            art_paths_for_review: list[tuple[str, str]] = []
+            if pair_entry:
+                if pair_entry.get("page1_path"):
+                    art_paths_for_review.append(("page1", pair_entry["page1_path"]))
+                if pair_entry.get("page2_path"):
+                    path_two = pair_entry["page2_path"]
+                    if path_two and path_two not in [p for _, p in art_paths_for_review]:
+                        art_paths_for_review.append(("page2", path_two))
+            if not art_paths_for_review and art_path:
+                art_paths_for_review = [("", art_path)]
+
             if art_path and filename_base:
-                dest_root = resolve_order_root(art_path)
+                dest_root = resolve_order_root(art_path, template)
                 if dest_root:
                     folder = "--DO NOT USE - PRINT--" if self.diagnostic_var.get() else "print"
-                    flat_path = os.path.join(dest_root, folder, f"{filename_base}_flat_{paper}.pdf")
+                    print_dir = os.path.join(dest_root, folder)
+                    if pair_entry and not pair_entry.get("print_root"):
+                        pair_entry["print_root"] = dest_root
+                    if pair_entry and not pair_entry.get("logged_print_dir"):
+                        display_base = pair_entry.get("base") or token
+                        primary_name = pair_entry.get("primary_name") or display_base
+                        mate_name = pair_entry.get("mate_name") or (display_base + "B")
+                        self.log_message(
+                            f"[INFO] Resolved print directory for {primary_name}/{mate_name} (ArtID {art_id}) -> {print_dir}"
+                        )
+                        pair_entry["logged_print_dir"] = True
+                    try:
+                        Path(print_dir).mkdir(parents=True, exist_ok=True)
+                    except Exception:
+                        pass
+                    flat_path = os.path.join(print_dir, f"{filename_base}_flat_{paper}.pdf")
                     flat_paths.append(flat_path)
                     order_counts[order_id] = order_counts.get(order_id, 0) + 1
-                    glue = it.get("gluetab", "")
+                    art_paths_payload = [
+                        {"label": label, "path": path}
+                        for label, path in art_paths_for_review
+                        if path
+                    ]
                     flat_info.append(
-                        (
-                            flat_path,
-                            order_id,
-                            order_counts[order_id],
-                            art_id,
-                            glue,
-                            template,
-                            lam,
-                            art_path,
-                        )
+                        {
+                            "flat_path": flat_path,
+                            "order_id": order_id,
+                            "pair_number": order_counts[order_id],
+                            "art_id": art_id,
+                            "gluetab": glue,
+                            "template": template,
+                            "laminate": lam,
+                            "art_path": art_path,
+                            "art_paths": art_paths_payload,
+                            "page_label": "page2" if is_b_template else "page1",
+                        }
                     )
                     if sample:
                         cut_src = cut_file_for_template(temp_path)
                         self.sample_copy_info.append((cut_src, os.path.join(dest_root, folder)))
-            pairs_data.append({
-                "art_id": art_id,
-                "template": template,
-                "art_path": art_path,
-                "template_path": temp_path,
-                "qty": qty,
-                "paperType": paper,
-                "lamType": lam,
-                "order_id": order_id,
-            })
+
+            pairs_data.append(
+                {
+                    "art_id": art_id,
+                    "template": template,
+                    "art_path": art_path,
+                    "template_path": temp_path,
+                    "qty": qty,
+                    "paperType": paper,
+                    "lamType": lam,
+                    "order_id": order_id,
+                    "print_root": pair_entry.get("print_root", "") if pair_entry else "",
+                }
+            )
             pair_orders.append(order_id)
 
         self.pending_flat_paths = [p for p in flat_paths if p]
-        self.pending_flat_info = [
-            (p, oid, num, aid, glue, templ, lam, art_path)
-            for (p, oid, num, aid, glue, templ, lam, art_path) in flat_info
-            if p
-        ]
+        self.pending_flat_info = [info for info in flat_info if info.get("flat_path")]
 
         save_order_data(
             {

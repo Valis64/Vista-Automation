@@ -42,6 +42,7 @@ For a detailed setup and usage guide see [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.
 - Exports both `*_lines_` and `*_flat_` PDFs for each pair.
 - URLs are re-fetched automatically whenever you refresh or start processing.
 - `order_data.json` includes all resolved file paths so Illustrator has everything it needs.
+- Paired tray-and-sleeve templates whose filenames start with `P` expect `page1.pdf` and `page2.pdf` in the ArtID folder. The automation places page 1 on the non-`B` template, page 2 on the `B` mate, and saves the resulting PDFs in the order-level `print/` directory two levels above the extracted artwork.
 
 ## Review Panel
 

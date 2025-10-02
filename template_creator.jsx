@@ -1359,7 +1359,11 @@ function processPair(pair, index) {
     var baseName;
     var artDir = pair.artFile.parent;
     var destRoot = null;
-    if (artDir) {
+    if (pair.print_root) {
+        destRoot = new Folder(pair.print_root);
+        try { if (!destRoot.exists) destRoot.create(); } catch (e) {}
+    }
+    if (!destRoot && artDir) {
         var current = artDir;
         while (current) {
             try {
