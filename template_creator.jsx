@@ -1358,7 +1358,27 @@ function processPair(pair, index) {
 
     var baseName;
     var artDir = pair.artFile.parent;
-    var destRoot = artDir ? artDir.parent : null;
+    var destRoot = null;
+    if (artDir) {
+        var current = artDir;
+        while (current) {
+            try {
+                if (current.name && String(current.name).toLowerCase() === 'art') {
+                    destRoot = current.parent;
+                    break;
+                }
+            } catch (e) {
+                // Ignore errors while traversing parents
+            }
+            if (!current.parent) {
+                break;
+            }
+            current = current.parent;
+        }
+        if (!destRoot && artDir.parent) {
+            destRoot = artDir.parent;
+        }
+    }
     if (orderData.filename) {
         if (destRoot) {
             var folderName = DIAGNOSTIC_MODE ? '--DO NOT USE - PRINT--' : PRINT_FOLDER_NAME;

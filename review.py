@@ -356,6 +356,10 @@ class ReviewManager:
                     img_w, img_h = 800, 600
 
                 art_w = art_h = 0
+                open_art = manager.app.open_in_illustrator
+                if art_path and art_path.lower().endswith(".pdf"):
+                    open_art = manager.app.open_in_acrobat
+
                 if art_path and os.path.isfile(art_path):
                     try:
                         import fitz
@@ -369,15 +373,26 @@ class ReviewManager:
                         art_label = tk.Label(self.art_holder, image=art_photo)
                         art_label.image = art_photo
                         art_label.grid(row=0, column=0, sticky="nsew")
-                        art_label.bind("<Double-Button-1>", lambda e, p=art_path: manager.app.open_in_illustrator(p))
+                        art_label.bind(
+                            "<Double-Button-1>",
+                            lambda e, p=art_path, opener=open_art: opener(p),
+                        )
                         art_w, art_h = art_pix.width, art_pix.height
                     except Exception:
                         art_label = tk.Label(self.art_holder, text=os.path.basename(art_path))
                         art_label.grid(row=0, column=0, sticky="nsew")
+                        art_label.bind(
+                            "<Double-Button-1>",
+                            lambda e, p=art_path, opener=open_art: opener(p),
+                        )
                         art_w, art_h = 800, 600
                 elif art_path:
                     art_label = tk.Label(self.art_holder, text=os.path.basename(art_path))
                     art_label.grid(row=0, column=0, sticky="nsew")
+                    art_label.bind(
+                        "<Double-Button-1>",
+                        lambda e, p=art_path, opener=open_art: opener(p),
+                    )
                     art_w, art_h = 800, 600
 
                 self._build_buttons(path, art_id, art_path)
