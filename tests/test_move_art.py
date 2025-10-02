@@ -1,27 +1,48 @@
-import unittest
 import tempfile
-import os
+import unittest
+import zipfile
+from pathlib import Path
 
 from order_gui import move_art_to_folder
 
 
 class MoveArtTest(unittest.TestCase):
-    def test_move_art_to_folder(self):
+    def test_move_art_to_folder_moves_loose_art(self):
         with tempfile.TemporaryDirectory() as tmp:
-            order_dir = os.path.join(tmp, "12345")
-            os.makedirs(order_dir)
-            art1 = os.path.join(order_dir, "sample.ai")
-            art2 = os.path.join(order_dir, "extra.pdf")
-            open(art1, "w").close()
-            open(art2, "w").close()
+            order_dir = Path(tmp) / "12345"
+            order_dir.mkdir()
+            art1 = order_dir / "sample.ai"
+            art2 = order_dir / "extra.pdf"
+            art1.touch()
+            art2.touch()
 
-            moved = move_art_to_folder(order_dir)
+            moved, processed = move_art_to_folder(str(order_dir))
 
-            art_dir = os.path.join(order_dir, "art")
-            self.assertEqual(moved, 2)
-            self.assertTrue(os.path.isdir(art_dir))
-            self.assertTrue(os.path.isfile(os.path.join(art_dir, "sample.ai")))
-            self.assertTrue(os.path.isfile(os.path.join(art_dir, "extra.pdf")))
+            art_dir = order_dir / "art"
+            self.assertEqual((moved, processed), (2, 0))
+            self.assertTrue(art_dir.is_dir())
+            self.assertTrue((art_dir / "sample.ai").is_file())
+            self.assertTrue((art_dir / "extra.pdf").is_file())
+
+    def test_move_art_to_folder_extracts_zip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_dir = Path(tmp) / "54321"
+            order_dir.mkdir()
+            zip_path = order_dir / "art_archive.zip"
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("folder/nested.ai", "")
+                zf.writestr("nested/deep/file.pdf", "")
+
+            moved, processed = move_art_to_folder(str(order_dir))
+
+            art_dir = order_dir / "art"
+            extracted_dir = art_dir / "art_archive"
+
+            self.assertEqual((moved, processed), (2, 1))
+            self.assertTrue(extracted_dir.is_dir())
+            self.assertTrue((extracted_dir / "folder" / "nested.ai").is_file())
+            self.assertTrue((extracted_dir / "nested" / "deep" / "file.pdf").is_file())
+            self.assertFalse(zip_path.exists())
 
 
 if __name__ == "__main__":
