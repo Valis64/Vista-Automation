@@ -403,8 +403,7 @@ def find_art_file(
     if root:
         search_dirs.append(root)
 
-    template_code = template_code or ""
-    template_upper = template_code.upper()
+    template_upper = (template_code or "").strip().upper()
 
     def normalize_label(text: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", text.lower())
