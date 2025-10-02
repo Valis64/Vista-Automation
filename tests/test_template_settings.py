@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import json
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 from utils.common import (
@@ -208,6 +209,37 @@ class TemplateSettingsTest(unittest.TestCase):
                 import_template_settings(archive, overwrite=True)
                 data = load_template_settings("AA0001")
                 self.assertEqual(data["rotation"], 90)
+
+    def test_import_does_not_downgrade_schema(self):
+        canonical_schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "Template settings",
+            "type": "object",
+            "properties": {
+                "alignment": {
+                    "type": "string",
+                    "enum": ALLOWED_ALIGNMENTS,
+                }
+            },
+            "additionalProperties": False,
+        }
+        older_schema = {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "title": "Template settings",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp, "schema.json")
+            schema_path.write_text(json.dumps(canonical_schema))
+            archive_path = Path(tmp, "settings.zip")
+            with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("schema.json", json.dumps(older_schema))
+                zf.writestr("AA0001.json", json.dumps({}))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                import_template_settings(archive_path)
+                self.assertTrue(validate_template_settings({"alignment": "center"}))
 
 if __name__ == "__main__":
     unittest.main()

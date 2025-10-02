@@ -134,6 +134,8 @@ def export_template_settings(archive_path: str | Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
         for file in TEMPLATE_SETTINGS_DIR.glob("*.json"):
+            if file.name == "schema.json":
+                continue
             zf.write(file, arcname=file.name)
     return dest
 
@@ -155,13 +157,14 @@ def import_template_settings(archive_path: str | Path, *, overwrite: bool = Fals
             name = Path(info.filename).name
             if not name.endswith(".json"):
                 continue
+            if name == "schema.json":
+                continue
             dest = TEMPLATE_SETTINGS_DIR / name
-            if name != "schema.json" and dest.exists() and not overwrite:
+            if dest.exists() and not overwrite:
                 raise FileExistsError(dest)
             with zf.open(info) as f:
                 data = json.load(f)
-            if name != "schema.json":
-                validate_template_settings(data)
+            validate_template_settings(data)
             with dest.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
