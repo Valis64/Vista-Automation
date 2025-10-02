@@ -151,6 +151,22 @@ function findArtFile(name) {
     return f;
 }
 
+function getAncestorFolder(entry, generations) {
+    if (!entry) return null;
+    var current = null;
+    if (entry instanceof File || entry instanceof Folder) {
+        current = entry.parent;
+    }
+    if (!current) return null;
+    if (generations && generations > 0) {
+        while (generations > 0 && current) {
+            current = current.parent;
+            generations--;
+        }
+    }
+    return current;
+}
+
 function downloadHTML(url) {
     var dest = Folder.temp.fsName + '/order_' + Date.now() + '.html';
     var cmd;
@@ -1357,8 +1373,19 @@ function processPair(pair, index) {
     waitStep();
 
     var baseName;
-    var artDir = pair.artFile.parent;
-    var destRoot = artDir ? artDir.parent : null;
+    var templateCode = pair.templateCode ? String(pair.templateCode) : '';
+    var templateName = (pair.templateFile && pair.templateFile.name) ? String(pair.templateFile.name) : '';
+    var isPTemplate = false;
+    if (templateCode.length > 0) {
+        isPTemplate = templateCode.toUpperCase().charAt(0) === 'P';
+    }
+    if (!isPTemplate && templateName.length > 0) {
+        isPTemplate = templateName.toUpperCase().charAt(0) === 'P';
+    }
+    var destRoot = getAncestorFolder(pair.artFile, isPTemplate ? 2 : 1);
+    if (destRoot && !(destRoot instanceof Folder)) {
+        destRoot = new Folder(destRoot);
+    }
     if (orderData.filename) {
         if (destRoot) {
             var folderName = DIAGNOSTIC_MODE ? '--DO NOT USE - PRINT--' : PRINT_FOLDER_NAME;
