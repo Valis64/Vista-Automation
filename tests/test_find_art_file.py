@@ -125,5 +125,41 @@ class FindArtFileTest(unittest.TestCase):
             self.assertEqual(front, page1_file)
             self.assertEqual(back, page2_file)
 
+    def test_tray_sleeve_templates_named_after_codes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            art_root = os.path.join(tmp, "art_root")
+            art_id = "TS6006"
+            art_dir = os.path.join(art_root, art_id)
+            os.makedirs(art_dir)
+            page1_file = os.path.join(art_dir, "PO1.ai")
+            page2_file = os.path.join(art_dir, "PO1B.ai")
+            open(page1_file, "w").close()
+            open(page2_file, "w").close()
+
+            front = find_art_file(art_root, art_id, template_code="PO1")
+            back = find_art_file(art_root, art_id, template_code="PO1B")
+
+            self.assertEqual(front, page1_file)
+            self.assertEqual(back, page2_file)
+
+    def test_tray_sleeve_templates_in_named_subfolders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            art_root = os.path.join(tmp, "art_root")
+            art_id = "TS7007"
+            sleeve_dir = os.path.join(art_root, art_id, "Sleeve Art")
+            tray_dir = os.path.join(art_root, art_id, "Tray Art")
+            os.makedirs(sleeve_dir)
+            os.makedirs(tray_dir)
+            page1_file = os.path.join(sleeve_dir, "design.pdf")
+            page2_file = os.path.join(tray_dir, "layout.pdf")
+            open(page1_file, "w").close()
+            open(page2_file, "w").close()
+
+            front = find_art_file(art_root, art_id, template_code="PO1")
+            back = find_art_file(art_root, art_id, template_code="PO1B")
+
+            self.assertEqual(front, page1_file)
+            self.assertEqual(back, page2_file)
+
 if __name__ == "__main__":
     unittest.main()

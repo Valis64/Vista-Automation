@@ -378,6 +378,9 @@ def save_temp_html(html: str) -> str:
     return str(path)
 
 
+_TRAY_SLEEVE_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+
+
 def find_art_file(
     root: str,
     art_id: str,
@@ -425,57 +428,98 @@ def find_art_file(
                     best_pdf = full
         return best_pdf
 
-    def find_tray_sleeve_page(art_folder: str, page_name: str) -> str:
-        target_norm = normalize_label(page_name)
-        best_pdf = ""
-        try:
-            entries = sorted(os.listdir(art_folder))
-        except OSError:
-            return ""
-        for entry in entries:
-            full = os.path.join(art_folder, entry)
-            if os.path.isfile(full):
-                base_norm = normalize_label(os.path.splitext(entry)[0])
-                if base_norm.startswith(target_norm):
-                    low = entry.lower()
-                    if low.endswith(".ai"):
-                        return full
-                    if low.endswith(".pdf") and not best_pdf:
-                        best_pdf = full
-        for entry in entries:
-            full = os.path.join(art_folder, entry)
-            if os.path.isdir(full):
-                dir_norm = normalize_label(entry)
-                if dir_norm.startswith(target_norm):
-                    candidate = pick_first_art_file(full)
-                    if candidate:
-                        return candidate
+    def collect_tray_sleeve_pages(art_folder: str, base_code: str) -> dict[str, str]:
+        key = (os.path.abspath(art_folder), base_code.upper())
+        cached = _TRAY_SLEEVE_CACHE.get(key)
+        if cached is not None:
+            return cached
+
+        page_terms = {
+            "page1": ["page1", "pg1", "sleeve", "outer", "front"],
+            "page2": ["page2", "pg2", "tray", "inner", "back"],
+        }
+
+        base_norm = normalize_label(base_code)
+        back_norm = normalize_label(base_code + "B") if base_code else ""
+        best: dict[str, tuple[int, int, int, int, str]] = {
+            "page1": (-1, -1, 0, 0, ""),
+            "page2": (-1, -1, 0, 0, ""),
+        }
+        results = {"page1": "", "page2": ""}
+
+        def evaluate(norms: list[str], page_key: str) -> int:
+            if not norms:
+                return -1
+            score = -1
+            terms = page_terms[page_key]
+            for norm in norms:
+                if not norm:
+                    continue
+                for idx, term in enumerate(terms):
+                    if term and norm.startswith(term):
+                        score = max(score, 200 - idx * 5)
+                    elif term and term in norm:
+                        score = max(score, 170 - idx * 5)
+            if page_key == "page1":
+                if base_norm and any(n == base_norm for n in norms):
+                    score = max(score, 160)
+                elif base_norm and any(n.startswith(base_norm) for n in norms):
+                    score = max(score, 140)
+                elif base_norm and any(base_norm in n for n in norms):
+                    score = max(score, 120)
+            else:
+                if back_norm and any(n == back_norm for n in norms):
+                    score = max(score, 175)
+                elif back_norm and any(n.startswith(back_norm) for n in norms):
+                    score = max(score, 160)
+                elif back_norm and any(back_norm in n for n in norms):
+                    score = max(score, 145)
+                if base_norm and any(n == base_norm + "b" for n in norms):
+                    score = max(score, 140)
+                elif base_norm and any(n.startswith(base_norm) and n.endswith("b") for n in norms):
+                    score = max(score, 130)
+            return score
+
+        art_path = Path(art_folder)
         for dirpath, _, files in os.walk(art_folder):
             dir_norm = normalize_label(os.path.basename(dirpath))
-            if dir_norm.startswith(target_norm):
-                candidate = pick_first_art_file(dirpath)
-                if candidate:
-                    return candidate
+            depth = len(Path(dirpath).relative_to(art_path).parts)
             for name in files:
-                base_norm = normalize_label(os.path.splitext(name)[0])
-                if base_norm.startswith(target_norm):
-                    full = os.path.join(dirpath, name)
-                    low = name.lower()
-                    if low.endswith(".ai"):
-                        return full
-                    if low.endswith(".pdf") and not best_pdf:
-                        best_pdf = full
-        return best_pdf
+                low = name.lower()
+                if not low.endswith((".ai", ".pdf")):
+                    continue
+                full = os.path.join(dirpath, name)
+                base = os.path.splitext(name)[0]
+                base_norm_local = normalize_label(base)
+                norms = [base_norm_local]
+                if dir_norm:
+                    norms.append(dir_norm)
+                    norms.append(dir_norm + base_norm_local)
+
+                for page_key in ("page1", "page2"):
+                    score = evaluate(norms, page_key)
+                    if score < 0:
+                        continue
+                    fmt_score = 1 if low.endswith(".ai") else 0
+                    candidate = (score, fmt_score, -depth, -len(base_norm_local), full)
+                    if candidate > best[page_key]:
+                        best[page_key] = candidate
+                        results[page_key] = full
+
+        _TRAY_SLEEVE_CACHE[key] = results
+        return results
 
     if (template_token or template_upper).startswith("P") and art_id:
         effective_code = template_token or template_upper
-        page_label = "Page 2" if effective_code.endswith("B") else "Page 1"
+        page_label = "page2" if effective_code.endswith("B") else "page1"
+        base_code = effective_code[:-1] if effective_code.endswith("B") else effective_code
         for sroot in search_dirs:
             art_folder = os.path.join(sroot, art_id)
             if os.path.isdir(art_folder):
-                page = find_tray_sleeve_page(art_folder, page_label)
-                if page:
-                    return page
+                pages = collect_tray_sleeve_pages(art_folder, base_code)
+                page_path = pages.get(page_label, "")
+                if page_path:
+                    return page_path
 
     art_id_l = art_id.lower()
     name_hint_l = name_hint.lower()
