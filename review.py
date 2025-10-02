@@ -216,14 +216,14 @@ class ReviewManager:
         update_last_run_flagged(self.flagged_items)
 
     # Flat review dialog ---------------------------------------------------
-    def start_flat_review(self, info_list: list[tuple[str, str, int, str, str, str, str, str]]) -> None:
+    def start_flat_review(self, info_list: list[dict]) -> None:
         if not info_list:
             return
 
         manager = self
 
         class Reviewer:
-            def __init__(self, info_list: list[tuple[str, str, int, str, str, str, str, str]]):
+            def __init__(self, info_list: list[dict]):
                 self.info_list = info_list
                 self.index = 0
                 self.flagged: list[FlaggedItem] = []
@@ -304,16 +304,31 @@ class ReviewManager:
                 manager.flat_review_complete(self.flagged)
 
             def _load_current(self) -> None:
-                (
-                    path,
-                    order_id,
-                    pair_num,
-                    art_id,
-                    glue,
-                    templ,
-                    lam,
-                    art_path,
-                ) = self.info_list[self.index]
+                item = self.info_list[self.index] or {}
+                path = item.get("flat_path", "")
+                order_id = item.get("order_id", "")
+                pair_num = item.get("pair_number", "")
+                art_id = item.get("art_id", "")
+                glue = item.get("gluetab", "")
+                templ = item.get("template", "")
+                lam = item.get("laminate", "")
+                art_entries_raw = item.get("art_paths") or []
+                normalized_entries: list[dict[str, str]] = []
+                for entry in art_entries_raw:
+                    if isinstance(entry, dict):
+                        label = entry.get("label", "")
+                        art_path = entry.get("path", "")
+                    elif isinstance(entry, (list, tuple)):
+                        label = entry[0] if entry else ""
+                        art_path = entry[1] if len(entry) > 1 else ""
+                    else:
+                        label = ""
+                        art_path = entry
+                    if art_path:
+                        normalized_entries.append({"label": label, "path": art_path})
+                fallback_path = item.get("art_path")
+                if fallback_path and all(fallback_path != e.get("path") for e in normalized_entries):
+                    normalized_entries.append({"label": "", "path": fallback_path})
 
                 for w in self.status_bar.winfo_children():
                     w.destroy()
@@ -326,8 +341,12 @@ class ReviewManager:
                         ("Laminate:", lam),
                     )
                 ):
-                    tk.Label(self.status_bar, text=lbl, bg="black", fg="dark green", font=status_font).grid(row=row, column=0, sticky="w", padx=4, pady=1)
-                    tk.Label(self.status_bar, text=val, bg="black", fg="yellow", font=status_font).grid(row=row, column=1, sticky="w", padx=(0, 10), pady=1)
+                    tk.Label(self.status_bar, text=lbl, bg="black", fg="dark green", font=status_font).grid(
+                        row=row, column=0, sticky="w", padx=4, pady=1
+                    )
+                    tk.Label(self.status_bar, text=val, bg="black", fg="yellow", font=status_font).grid(
+                        row=row, column=1, sticky="w", padx=(0, 10), pady=1
+                    )
                 self.status_bar.update_idletasks()
 
                 self.order_var.set(order_id)
@@ -340,6 +359,7 @@ class ReviewManager:
                 try:
                     import fitz
                     from PIL import Image, ImageTk
+
                     doc = fitz.open(path)
                     page = doc.load_page(0)
                     pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
@@ -355,53 +375,92 @@ class ReviewManager:
                     self.pdf_label.image = None
                     img_w, img_h = 800, 600
 
-                art_w = art_h = 0
-                if art_path and os.path.isfile(art_path):
-                    try:
-                        import fitz
-                        from PIL import Image, ImageTk
-                        doc = fitz.open(art_path)
-                        page = doc.load_page(0)
-                        art_pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
-                        mode = "RGBA" if art_pix.alpha else "RGB"
-                        art_img = Image.frombytes(mode, [art_pix.width, art_pix.height], art_pix.samples)
-                        art_photo = ImageTk.PhotoImage(art_img)
-                        art_label = tk.Label(self.art_holder, image=art_photo)
-                        art_label.image = art_photo
-                        art_label.grid(row=0, column=0, sticky="nsew")
-                        art_label.bind("<Double-Button-1>", lambda e, p=art_path: manager.app.open_in_illustrator(p))
-                        art_w, art_h = art_pix.width, art_pix.height
-                    except Exception:
-                        art_label = tk.Label(self.art_holder, text=os.path.basename(art_path))
-                        art_label.grid(row=0, column=0, sticky="nsew")
-                        art_w, art_h = 800, 600
-                elif art_path:
-                    art_label = tk.Label(self.art_holder, text=os.path.basename(art_path))
-                    art_label.grid(row=0, column=0, sticky="nsew")
-                    art_w, art_h = 800, 600
+                max_art_w = max_art_h = 0
+                if not normalized_entries:
+                    placeholder = tk.Label(self.art_holder, text="No artwork files found")
+                    placeholder.grid(row=0, column=0, sticky="nsew")
+                    self.art_holder.grid_rowconfigure(0, weight=1)
+                else:
+                    for idx, entry in enumerate(normalized_entries):
+                        art_path = entry.get("path", "")
+                        label_text = entry.get("label", "")
+                        slot = tk.Frame(self.art_holder, bd=2, relief="groove")
+                        slot.grid(row=idx, column=0, sticky="nsew", pady=4)
+                        self.art_holder.grid_rowconfigure(idx, weight=1)
+                        slot.grid_columnconfigure(0, weight=1)
+                        if label_text:
+                            tk.Label(slot, text=label_text.title(), font=tkfont.Font(weight="bold")).grid(
+                                row=0, column=0, sticky="w", padx=4, pady=2
+                            )
+                        preview_frame = tk.Frame(slot)
+                        preview_frame.grid(row=1, column=0, sticky="nsew")
+                        preview_frame.grid_columnconfigure(0, weight=1)
+                        preview_frame.grid_rowconfigure(0, weight=1)
+                        opener = manager.app.open_in_illustrator
+                        if art_path.lower().endswith(".pdf"):
+                            opener = manager.app.open_in_acrobat
+                        if art_path and os.path.isfile(art_path):
+                            try:
+                                import fitz
+                                from PIL import Image, ImageTk
 
-                self._build_buttons(path, art_id, art_path)
+                                doc = fitz.open(art_path)
+                                page = doc.load_page(0)
+                                art_pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
+                                mode = "RGBA" if art_pix.alpha else "RGB"
+                                art_img = Image.frombytes(mode, [art_pix.width, art_pix.height], art_pix.samples)
+                                art_photo = ImageTk.PhotoImage(art_img)
+                                art_label = tk.Label(preview_frame, image=art_photo)
+                                art_label.image = art_photo
+                                art_label.grid(row=0, column=0, sticky="nsew")
+                                art_label.bind(
+                                    "<Double-Button-1>",
+                                    lambda e, p=art_path, open_cb=opener: open_cb(p),
+                                )
+                                max_art_w = max(max_art_w, art_pix.width)
+                                max_art_h = max(max_art_h, art_pix.height)
+                                continue
+                            except Exception:
+                                pass
+                        display_name = os.path.basename(art_path) if art_path else "Unavailable"
+                        art_label = tk.Label(preview_frame, text=display_name)
+                        art_label.grid(row=0, column=0, sticky="nsew")
+                        if art_path:
+                            art_label.bind(
+                                "<Double-Button-1>",
+                                lambda e, p=art_path, open_cb=opener: open_cb(p),
+                            )
+                        max_art_w = max(max_art_w, 800)
+                        max_art_h = max(max_art_h, 600)
 
-                total_w = img_w + art_w + self.status_bar.winfo_reqwidth()
-                total_h = max(img_h, art_h)
+                self._build_buttons(path, art_id, normalized_entries)
+
+                total_w = img_w + max_art_w + self.status_bar.winfo_reqwidth()
+                total_h = max(img_h, max_art_h)
                 sw = self.win.winfo_screenwidth() - 40
                 sh = self.win.winfo_screenheight() - 80
-                scale = min(sw / total_w, sh / (total_h + 140), 1)
+                denom_w = total_w if total_w else 1
+                denom_h = total_h + 140 if total_h else 1
+                scale = min(sw / denom_w, sh / denom_h, 1)
                 if scale < 1:
                     try:
                         from PIL import Image, ImageTk
+
                         if self.pdf_label.image:
                             _ = self.pdf_label.image._PhotoImage__photo.zoom(1)
                     except Exception:
                         pass
 
-            def _build_buttons(self, path: str, art_id: str, art_path: str | None) -> None:
+            def _build_buttons(self, path: str, art_id: str, art_entries: list[dict[str, str]]) -> None:
                 for w in self.btn_frame.winfo_children():
                     w.destroy()
 
+                art_paths = [entry.get("path", "") for entry in art_entries if entry.get("path")]
+                first_path = art_paths[0] if art_paths else ""
+
                 def open_art_dir() -> None:
-                    if art_path:
-                        manager.app.open_directory(os.path.dirname(art_path))
+                    if first_path:
+                        manager.app.open_directory(os.path.dirname(first_path))
 
                 def approve() -> None:
                     self.next_item()
@@ -451,7 +510,7 @@ class ReviewManager:
                         self.btn_frame,
                         text="Go Back",
                         width=10,
-                        command=lambda: self._build_buttons(path, art_id, art_path),
+                        command=lambda: self._build_buttons(path, art_id, art_entries),
                     ).grid(row=len(reasons) + 1, column=1, pady=5)
 
                 tk.Button(
@@ -472,21 +531,43 @@ class ReviewManager:
                     command=flag,
                 ).grid(row=0, column=1, padx=5, pady=3)
 
-                tk.Button(
-                    self.btn_frame,
-                    text="View Art",
-                    width=10,
-                    bg="#4682B4",
-                    fg="white",
-                    command=lambda p=art_path: manager.app.open_in_acrobat(p),
-                ).grid(row=1, column=0, padx=5, pady=3)
+                view_column = 0
+                if art_entries:
+                    for entry in art_entries:
+                        art_path = entry.get("path", "")
+                        if not art_path:
+                            continue
+                        label_text = entry.get("label", "")
+                        button_text = "View Art"
+                        if label_text:
+                            button_text = f"View {label_text.title()}"
+                        opener = manager.app.open_in_illustrator
+                        if art_path.lower().endswith(".pdf"):
+                            opener = manager.app.open_in_acrobat
+                        tk.Button(
+                            self.btn_frame,
+                            text=button_text,
+                            width=12,
+                            bg="#4682B4",
+                            fg="white",
+                            command=lambda p=art_path, open_cb=opener: open_cb(p),
+                        ).grid(row=1, column=view_column, padx=5, pady=3)
+                        view_column += 1
+                else:
+                    tk.Button(
+                        self.btn_frame,
+                        text="View Art",
+                        width=12,
+                        state="disabled",
+                    ).grid(row=1, column=view_column, padx=5, pady=3)
+                    view_column += 1
 
                 tk.Button(
                     self.btn_frame,
                     text="Art Folder",
                     width=10,
                     command=open_art_dir,
-                ).grid(row=1, column=1, padx=5, pady=3)
+                ).grid(row=1, column=view_column, padx=5, pady=3)
 
         Reviewer(info_list)
 
