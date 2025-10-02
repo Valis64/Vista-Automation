@@ -540,43 +540,81 @@ def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = N
     return written
 
 
-def move_art_to_folder(order_dir: str) -> int:
+def move_art_to_folder(order_dir: str) -> tuple[int, int]:
     """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns the number of files moved into the ``art`` subfolder.
+    Returns a tuple of ``(art_file_count, zip_count)`` representing the number
+    of individual art files moved and the number of ZIP archives extracted and
+    relocated into the ``art`` subfolder.
     """
 
     if not os.path.isdir(order_dir):
-        return 0
+        return 0, 0
 
     try:
         entries = os.listdir(order_dir)
     except Exception:
         traceback.print_exc()
-        return 0
+        return 0, 0
 
-    extracted = False
+    art_dir = os.path.join(order_dir, "art")
+    moved_files = 0
+    zip_count = 0
+
+    def unique_path(base_dir: str, name: str) -> str:
+        candidate = os.path.join(base_dir, name)
+        if not os.path.exists(candidate):
+            return candidate
+        stem, ext = os.path.splitext(name)
+        counter = 1
+        while True:
+            suffix = f"_{counter}"
+            candidate = os.path.join(base_dir, f"{stem}{suffix}{ext}")
+            if not os.path.exists(candidate):
+                return candidate
+            counter += 1
+
     for name in list(entries):
         if not name.lower().endswith(".zip"):
             continue
         zip_path = os.path.join(order_dir, name)
+        base_name = os.path.splitext(name)[0].strip() or "archive"
+        extract_dir = unique_path(order_dir, base_name)
         try:
+            os.makedirs(extract_dir, exist_ok=True)
             with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(order_dir)
-            os.remove(zip_path)
-            extracted = True
+                zf.extractall(extract_dir)
         except Exception:
             traceback.print_exc()
-
-    if extracted:
+            try:
+                if os.path.isdir(extract_dir) and not os.listdir(extract_dir):
+                    os.rmdir(extract_dir)
+            except Exception:
+                traceback.print_exc()
+            continue
         try:
-            entries = os.listdir(order_dir)
+            os.remove(zip_path)
         except Exception:
             traceback.print_exc()
-            entries = []
+        try:
+            if not os.path.isdir(art_dir):
+                os.makedirs(art_dir, exist_ok=True)
+        except Exception:
+            traceback.print_exc()
+            continue
+        dest_dir = unique_path(art_dir, os.path.basename(extract_dir))
+        try:
+            shutil.move(extract_dir, dest_dir)
+            zip_count += 1
+        except Exception:
+            traceback.print_exc()
 
-    art_dir = os.path.join(order_dir, "art")
-    moved = 0
+    try:
+        entries = os.listdir(order_dir)
+    except Exception:
+        traceback.print_exc()
+        entries = []
+
     for name in entries:
         lower = name.lower()
         if not lower.endswith((".ai", ".pdf")):
@@ -584,30 +622,35 @@ def move_art_to_folder(order_dir: str) -> int:
         src = os.path.join(order_dir, name)
         if not os.path.isfile(src):
             continue
-        dest = os.path.join(art_dir, name)
-        if os.path.abspath(src) == os.path.abspath(dest):
-            continue
-        if not os.path.isdir(art_dir):
-            try:
-                os.makedirs(art_dir, exist_ok=True)
-            except Exception:
-                traceback.print_exc()
-                break
-        if os.path.exists(dest):
-            stem, ext = os.path.splitext(name)
-            counter = 1
-            while True:
-                candidate = os.path.join(art_dir, f"{stem}_{counter}{ext}")
-                if not os.path.exists(candidate):
-                    dest = candidate
-                    break
-                counter += 1
+        dest_name = name
         try:
-            shutil.move(src, dest)
-            moved += 1
+            if not os.path.isdir(art_dir):
+                os.makedirs(art_dir, exist_ok=True)
         except Exception:
             traceback.print_exc()
-    return moved
+            break
+        dest = unique_path(art_dir, dest_name)
+        if os.path.abspath(src) == os.path.abspath(dest):
+            continue
+        try:
+            shutil.move(src, dest)
+            moved_files += 1
+        except Exception:
+            traceback.print_exc()
+    return moved_files, zip_count
+
+
+def format_art_move_summary(art_files: int, zip_count: int) -> tuple[list[str], str | None]:
+    """Create human-readable status lines for art move results."""
+
+    file_word = "file" if art_files == 1 else "files"
+    archive_word = "archive" if zip_count == 1 else "archives"
+    lines = [
+        f"Moved {art_files} art {file_word} into art folders.",
+        f"Extracted {zip_count} {archive_word} into dedicated folders.",
+    ]
+    warning = ".zip files were deleted after extraction." if zip_count else None
+    return lines, warning
 
 
 def parse_queue(html: str) -> list[str]:
@@ -2725,7 +2768,8 @@ class App:
             messagebox.showerror("Error", "Set month folder first")
             return
         items = self.items if self.items else self.batch_items
-        moved = 0
+        moved_files = 0
+        extracted_zips = 0
         seen: set[str] = set()
         for it in items:
             order_id = str(it.get("order_id", self.order_id_var.get())).strip()
@@ -2733,14 +2777,31 @@ class App:
                 continue
             seen.add(order_id)
             order_dir = os.path.join(month_root, order_id)
-            moved += move_art_to_folder(order_dir)
-        messagebox.showinfo(
-            "Extract & Move Art",
-            (
-                "Extracted archives (if any) and moved "
-                f"{moved} file{'s' if moved != 1 else ''} into art folders."
-            ),
-        )
+            files, zips = move_art_to_folder(order_dir)
+            moved_files += files
+            extracted_zips += zips
+        self._show_art_move_summary(moved_files, extracted_zips)
+
+    def _show_art_move_summary(self, art_files: int, zip_count: int):
+        lines, warning = format_art_move_summary(art_files, zip_count)
+        win = tk.Toplevel(self.root)
+        win.title("Extract & Move Art")
+        win.transient(self.root)
+        win.grab_set()
+        win.resizable(False, False)
+
+        frame = ttk.Frame(win, padding=15)
+        frame.pack(fill="both", expand=True)
+
+        for line in lines:
+            ttk.Label(frame, text=line, justify="left", anchor="w").pack(
+                anchor="w", pady=(0, 4)
+            )
+        if warning:
+            tk.Label(frame, text=warning, fg="red", justify="left", anchor="w").pack(
+                anchor="w", pady=(0, 10)
+            )
+        ttk.Button(frame, text="OK", command=win.destroy).pack(anchor="e", pady=(5, 0))
 
     def _arrange_windows(self, paths: list[str]):
         """Arrange folder windows in a grid if pygetwindow is available."""
