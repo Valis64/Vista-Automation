@@ -709,7 +709,7 @@ def resolve_paired_page_art(
     pair_map: dict[str, dict[str, int | None]] = {}
     for idx in range(limit):
         template = str(entries[idx].get("template", "") or "").strip().upper()
-        if not template.startswith("P"):
+        if not template.startswith("P") or template.startswith("PB"):
             continue
         is_mate = template.endswith("B") and len(template) > 1
         base_code = template[:-1] if is_mate else template
