@@ -34,6 +34,17 @@ class ResolvePrintFolderTest(unittest.TestCase):
             Path(folder), self.art_path.parents[2] / DIAGNOSTIC_PRINT_FOLDER_NAME
         )
 
+    def test_p_template_with_nested_art_directory(self):
+        nested_art = Path(
+            "/tmp/base/YBS/Vista/35198/art/Pair123/sub/page1.pdf"
+        )
+        folder = resolve_print_output_folder(
+            str(nested_art), template_code="PZ999"
+        )
+        self.assertEqual(
+            Path(folder), nested_art.parents[3] / PRINT_FOLDER_NAME
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
