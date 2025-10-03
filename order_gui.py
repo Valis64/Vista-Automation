@@ -141,6 +141,26 @@ def resolve_print_output_folder(
         else:
             root = path.parent
 
+    # Some paired art exports include an intermediate ``art`` directory. In
+    # those cases we need to step up one more level to reach the order folder
+    # where the print directory lives. Additionally, if the expected print
+    # folder is missing at this level but exists one level higher, prefer the
+    # higher-level directory.
+    candidate_root = root
+    if candidate_root.name.lower() == "art":
+        candidate_root = candidate_root.parent
+    else:
+        folder_name = (
+            DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
+        )
+        if (
+            not (candidate_root / folder_name).exists()
+            and (candidate_root.parent / folder_name).exists()
+        ):
+            candidate_root = candidate_root.parent
+
+    root = candidate_root
+
     folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
     return str(root / folder_name)
 
