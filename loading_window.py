@@ -53,15 +53,6 @@ class LoadingWindow:
         except Exception:
             pass
 
-        try:
-            width = parent.winfo_width()
-            height = parent.winfo_height()
-        except Exception:
-            width = height = 0
-        if width and height:
-            self.window.geometry(f"{width}x{height}")
-        self.window.resizable(False, False)
-
         # Track templates without settings already prompted to avoid repeats
         self.missing_settings: set[str] = set()
         self.pair_rows: dict[int, str] = {}
@@ -263,6 +254,32 @@ class LoadingWindow:
 
         # Periodically update timer labels
         self.window.after(1000, self.update_timers)
+
+        self.window.update_idletasks()
+
+        try:
+            parent_width = parent.winfo_width()
+            parent_height = parent.winfo_height()
+        except Exception:
+            parent_width = parent_height = 0
+
+        requested_width = self.window.winfo_reqwidth()
+        requested_height = self.window.winfo_reqheight()
+
+        width = max(requested_width, parent_width)
+        height = max(requested_height, parent_height)
+
+        padding = 40
+        screen_height = self.window.winfo_screenheight()
+        available_height = max(screen_height - padding, 1)
+        height = min(height, available_height)
+
+        min_width = min(requested_width, width) if requested_width else width
+        min_height = min(requested_height, height) if requested_height else height
+
+        self.window.geometry(f"{width}x{height}")
+        self.window.minsize(min_width, min_height)
+        self.window.resizable(True, True)
 
     def close(self):
         self.pb.stop()
