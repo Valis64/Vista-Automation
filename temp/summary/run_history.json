@@ -1,0 +1,342 @@
+[
+  {
+    "timestamp": 1752781226.445419,
+    "duration": 4.972516775131226,
+    "flagged": []
+  },
+  {
+    "timestamp": 1752781853.0851436,
+    "duration": 610.5275845527649,
+    "flagged": [
+      {
+        "id": "MHBGF0H434",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35194\\--DO NOT USE - PRINT--\\35194 - Vista Print - RT3711M_MHBGF0H434 - RT3711_#1_print_flat_10in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1752781912.9024808
+      },
+      {
+        "id": "M6B0BHB193",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35198\\--DO NOT USE - PRINT--\\35198 - Vista Print - TT3085G_M6B0BHB193 - TT3085_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1752781935.3881004
+      },
+      {
+        "id": "M6B0BHB193",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35198\\--DO NOT USE - PRINT--\\35198 - Vista Print - TT3085G_M6B0BHB193 - TT3085_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1752781945.0092127
+      },
+      {
+        "id": "M6B0BHB193",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35198\\--DO NOT USE - PRINT--\\35198 - Vista Print - TT3085G_M6B0BHB193 - TT3085_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment",
+          "Artifacts"
+        ],
+        "status": "open",
+        "timestamp": 1752781950.0097883
+      }
+    ]
+  },
+  {
+    "timestamp": 1752781972.4378412,
+    "duration": 110.15203285217285,
+    "flagged": []
+  },
+  {
+    "timestamp": 1752782394.7285016,
+    "duration": 115.00461983680725,
+    "flagged": []
+  },
+  {
+    "timestamp": 1752871686.5274904,
+    "duration": 510.1055157184601,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753221021.1971407,
+    "duration": 540.3686513900757,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753304353.5606,
+    "duration": 8.830427646636963,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753304702.9563172,
+    "duration": 334.9361560344696,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753306094.2482817,
+    "duration": 5.2372825145721436,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753306151.1510475,
+    "duration": 26.352872848510742,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753387728.1025789,
+    "duration": 812.9045033454895,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753472011.4461782,
+    "duration": 3.742814540863037,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753472333.204909,
+    "duration": 309.34824657440186,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753473239.0491116,
+    "duration": 165.53012824058533,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753731360.3936036,
+    "duration": 4.781176567077637,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753731573.6020744,
+    "duration": 203.49586296081543,
+    "flagged": [
+      {
+        "id": "M72G86D4E0",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35316\\print\\35316 - Vista Print - CD0434_M72G86D4E0 - CD0434_#8_print_flat_13in.pdf",
+        "reasons": [
+          "Convert to grayscale"
+        ],
+        "status": "open",
+        "timestamp": 1753731598.233409
+      }
+    ]
+  },
+  {
+    "timestamp": 1753736639.5717757,
+    "duration": 4.280095100402832,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753736726.0832105,
+    "duration": 54.99183464050293,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753736780.2689748,
+    "duration": 29.952651977539062,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753737506.9704673,
+    "duration": 543.717857837677,
+    "flagged": []
+  },
+  {
+    "timestamp": 1753742274.825923,
+    "duration": 33.83982729911804,
+    "flagged": [
+      {
+        "id": "MHEDD710G1",
+        "path": "//MCI2NAS/Art server/`2025/07_July_2025/YBS/Vista\\35321\\print\\35321 - Vista Print - MHEDD710G1 - RT3736_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Convert to grayscale"
+        ],
+        "status": "open",
+        "timestamp": 1753742289.121776
+      }
+    ]
+  },
+  {
+    "timestamp": 1754339702.4917629,
+    "duration": 13.66071629524231,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754339727.0192463,
+    "duration": 14.184772491455078,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754340295.9020176,
+    "duration": 518.266889333725,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754429193.663005,
+    "duration": 6.216463088989258,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754429474.917771,
+    "duration": 267.19484543800354,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754505690.153078,
+    "duration": 4.599352836608887,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754505742.7983432,
+    "duration": 44.957780838012695,
+    "flagged": []
+  },
+  {
+    "timestamp": 1754511490.383945,
+    "duration": 544.2455940246582,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755201951.9001443,
+    "duration": 343.5780379772186,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755202361.002687,
+    "duration": 10.551665782928467,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755202919.681845,
+    "duration": 353.90043663978577,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755287496.5145588,
+    "duration": 842.5438959598541,
+    "flagged": [
+      {
+        "id": "M8H26AFE94",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35659\\print\\35659 - Vista Print - RT3713M_M8H26AFE94 - RT3713_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Color Adjustments"
+        ],
+        "status": "open",
+        "timestamp": 1755287511.076559
+      },
+      {
+        "id": "M6G0251373",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35659\\print\\35659 - Vista Print - RT3713M_M6G0251373 - RT3713_#2_print_flat_13in.pdf",
+        "reasons": [
+          "Color Adjustments"
+        ],
+        "status": "open",
+        "timestamp": 1755287518.5095592
+      },
+      {
+        "id": "M74AA0FF92",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35617\\print\\35617 - Vista Print - LB3008G_M74AA0FF92 - LB3008_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1755287563.5436282
+      },
+      {
+        "id": "M705ED269A",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35617\\print\\35617 - Vista Print - LB3008G_M705ED269A - LB3008_#2_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1755287566.9386272
+      },
+      {
+        "id": "M12D950069",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35657\\print\\35657 - Vista Print - LB2022G_M12D950069 - LB2022_#2_print_flat_13in.pdf",
+        "reasons": [
+          "No File"
+        ],
+        "status": "open",
+        "timestamp": 1755287599.1966286
+      },
+      {
+        "id": "M12D950069",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35657\\print\\35657 - Vista Print - LB2022G_M12D950069 - LB2022_#2_print_flat_13in.pdf",
+        "reasons": [
+          "No File"
+        ],
+        "status": "open",
+        "timestamp": 1755287605.3876376
+      },
+      {
+        "id": "M12D950069",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35657\\print\\35657 - Vista Print - LB2022G_M12D950069 - LB2022_#2_print_flat_13in.pdf",
+        "reasons": [
+          "No File"
+        ],
+        "status": "open",
+        "timestamp": 1755287610.4406369
+      },
+      {
+        "id": "M12D950069",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35657\\print\\35657 - Vista Print - LB2022G_M12D950069 - LB2022_#2_print_flat_13in.pdf",
+        "reasons": [
+          "No File"
+        ],
+        "status": "open",
+        "timestamp": 1755287616.9236367
+      }
+    ]
+  },
+  {
+    "timestamp": 1755287665.5487576,
+    "duration": 0,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755287748.8448997,
+    "duration": 59.25687026977539,
+    "flagged": []
+  },
+  {
+    "timestamp": 1755287855.8323658,
+    "duration": 67.25657868385315,
+    "flagged": [
+      {
+        "id": "M74AA0FF92",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35617\\print\\35617 - Vista Print - LB3008G_M74AA0FF92 - LB3008_#1_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1755287563.5436282
+      },
+      {
+        "id": "M705ED269A",
+        "path": "//MCI2NAS/Art server/`2025/08_August_2025/YBS/Vista\\35617\\print\\35617 - Vista Print - LB3008G_M705ED269A - LB3008_#2_print_flat_13in.pdf",
+        "reasons": [
+          "Alignment"
+        ],
+        "status": "open",
+        "timestamp": 1755287566.9386272
+      }
+    ]
+  },
+  {
+    "timestamp": 1759460346.3960931,
+    "duration": 29.018147468566895,
+    "flagged": []
+  },
+  {
+    "timestamp": 1759461882.8704214,
+    "duration": 28.459604024887085,
+    "flagged": []
+  }
+]

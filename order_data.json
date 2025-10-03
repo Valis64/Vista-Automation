@@ -1,0 +1,89 @@
+{
+  "items": [
+    {
+      "filename": "36349 - McKenzie Crest Inc. - Justin - PO1_M38EA03C07 - PO1_#1_print lines",
+      "info": "McKenzie Crest Inc. - Justin QUANTITY: 100 JOB NUMBER: 36349 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "36349 - McKenzie Crest Inc. - Justin - #1 - 100",
+      "artName": "36349_PO1_M38EA03C07_#1",
+      "templateName": "PO1",
+      "lamType": "Matte",
+      "paperType": "13in",
+      "order_id": "36349",
+      "company": "McKenzie Crest Inc. - Justin",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista"
+    },
+    {
+      "filename": "36349 - McKenzie Crest Inc. - Justin - PO1B_M38EA03C07 - PO1B_#2_print lines",
+      "info": "McKenzie Crest Inc. - Justin QUANTITY: 100 JOB NUMBER: 36349 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "36349 - McKenzie Crest Inc. - Justin - #2 - 100",
+      "artName": "36349_PO1B_M38EA03C07_#2",
+      "templateName": "PO1B",
+      "lamType": "Matte",
+      "order_id": "36349",
+      "company": "McKenzie Crest Inc. - Justin",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista",
+      "paperType": "13in"
+    },
+    {
+      "filename": "36445 - Vista Print - PB004G_MZB7EFC523 - PB004_#1_print lines",
+      "info": "Vista Print QUANTITY: 500 JOB NUMBER: 36445 Printed Box-CMYK 17.2pt Gloss Laminated Paperboard SALES PERSON: Justin Fish",
+      "gluetab": "36445 - Vista Print - #1 - 500",
+      "artName": "36445_PB004G_MZB7EFC523_#1",
+      "templateName": "PB004",
+      "lamType": "Gloss",
+      "paperType": "13in",
+      "order_id": "36445",
+      "company": "Vista Print",
+      "created_by": "Justin Fish",
+      "art_dir": "",
+      "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+      "month_dir": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista"
+    }
+  ],
+  "pairs": [
+    {
+      "art_id": "M38EA03C07",
+      "template": "PO1",
+      "art_path": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista\\36349\\art\\M38EA03C07\\page1.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\PO1_print 13in -vp.pdf",
+      "qty": 100,
+      "paperType": "13in",
+      "lamType": "Matte",
+      "order_id": "36349"
+    },
+    {
+      "art_id": "M38EA03C07",
+      "template": "PO1B",
+      "art_path": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista\\36349\\art\\M38EA03C07\\page2.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\PO1B_print 13in -vp.pdf",
+      "qty": 100,
+      "paperType": "13in",
+      "lamType": "Matte",
+      "order_id": "36349"
+    },
+    {
+      "art_id": "MZB7EFC523",
+      "template": "PB004",
+      "art_path": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista\\36445\\art\\MZB7EFC523.pdf",
+      "template_path": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS\\PB004_print 13in -vp.pdf",
+      "qty": 500,
+      "paperType": "13in",
+      "lamType": "Gloss",
+      "order_id": "36445"
+    }
+  ],
+  "art_dir": "",
+  "template_dir": "C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FILE SETUPS",
+  "month_dir": "//MCI2NAS/Art server/`2025/10_October_2025/YBS/Vista",
+  "order_id": "36445",
+  "show_summary": true,
+  "diagnostic": false,
+  "preserve_color_profile": true,
+  "summary_dir": "C:\\Users\\neone\\Documents\\AI\\Vista-Automation\\Beta5.2\\Vista-Automation-codex-update-order_gui.py-to-ignore-pb-templates\\Vista-Automation-codex-update-order_gui.py-to-ignore-pb-templates\\temp\\summary"
+}

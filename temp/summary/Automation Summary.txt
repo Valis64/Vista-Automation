@@ -1,0 +1,23 @@
+Processed 3 pairs
+
+Pair 1: page1.pdf -> PO1_print%2013in%20-vp.pdf
+  Info: McKenzie Crest Inc. - Justin QUANTITY: 100 JOB NUMBER: 36349 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish
+  GlueTab: 36349 - McKenzie Crest Inc. - Justin - #1 - 100
+  Laminate: Matte  Paper: 13in
+  lines PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\36349\print/36349 - McKenzie Crest Inc. - Justin - PO1_M38EA03C07 - PO1_#1_print_lines_13in.pdf
+  flat PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\36349\print/36349 - McKenzie Crest Inc. - Justin - PO1_M38EA03C07 - PO1_#1_print_flat_13in.pdf
+
+Pair 2: page2.pdf -> PO1B_print%2013in%20-vp.pdf
+  Info: McKenzie Crest Inc. - Justin QUANTITY: 100 JOB NUMBER: 36349 Printed Box-CMYK 19.2pt Matte Laminated Paperboard SALES PERSON: Justin Fish
+  GlueTab: 36349 - McKenzie Crest Inc. - Justin - #2 - 100
+  Laminate: Matte  Paper: 13in
+  lines PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\36349\print/36349 - McKenzie Crest Inc. - Justin - PO1B_M38EA03C07 - PO1B_#2_print_lines_13in.pdf
+  flat PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\36349\print/36349 - McKenzie Crest Inc. - Justin - PO1B_M38EA03C07 - PO1B_#2_print_flat_13in.pdf
+
+Pair 3: MZB7EFC523.pdf -> PB004_print%2013in%20-vp.pdf
+  Info: Vista Print QUANTITY: 500 JOB NUMBER: 36445 Printed Box-CMYK 17.2pt Gloss Laminated Paperboard SALES PERSON: Justin Fish
+  GlueTab: 36445 - Vista Print - #1 - 500
+  Laminate: Gloss  Paper: 13in
+  lines PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\print/36445 - Vista Print - PB004G_MZB7EFC523 - PB004_#1_print_lines_13in.pdf
+  flat PDF: \\MCI2NAS\Art server\`2025\10_October_2025\YBS\Vista\print/36445 - Vista Print - PB004G_MZB7EFC523 - PB004_#1_print_flat_13in.pdf
+

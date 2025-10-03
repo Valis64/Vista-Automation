@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Template settings",
+  "type": "object",
+  "properties": {
+    "rotation": {
+      "type": "integer",
+      "description": "Rotate pasted artwork by this many degrees"
+    },
+    "bleedPaths": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Additional bleed path names to use"
+    },
+    "mirror": {
+      "type": "boolean",
+      "description": "Mirror artwork horizontally before placement"
+    },
+    "artworkScale": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Scale factor applied to artwork (1 = 100%)"
+    },
+    "alignment": {
+      "type": "string",
+      "enum": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center-left",
+        "center",
+        "center-right",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "description": "Anchor point for placing artwork"
+    }
+  },
+  "additionalProperties": false
+}

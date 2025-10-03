@@ -1,0 +1,97 @@
+"""Tests for the loading window progress logging."""
+
+from __future__ import annotations
+
+import tkinter as tk
+
+import pytest
+
+from loading_window import LoadingWindow
+from utils.common import get_laminate_color
+
+
+@pytest.fixture
+def tk_root():
+    """Provide a Tk root window or skip if Tk is unavailable."""
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("Tkinter GUI is not available in this environment")
+    root.withdraw()
+    yield root
+    root.destroy()
+
+
+def test_verbose_log_captures_progress_messages(tk_root):
+    items = [
+        {
+            "company": "Example Co",
+            "template": "PB001",
+            "lamType": "Gloss",
+        }
+    ]
+    orders = ["ORDER-1"]
+
+    window = LoadingWindow(tk_root, items, orders)
+    try:
+        window.update_status("Starting job")
+        window.update_status("Processing pair 1 of 1")
+        window.update_status("Finished pair 1 of 1")
+
+        content = window.verbose_log.get("1.0", tk.END).strip().splitlines()
+        assert any("Starting job" in line for line in content)
+        assert any("Processing pair 1 of 1" in line for line in content)
+        assert any("Finished pair 1 of 1" in line for line in content)
+
+        color = get_laminate_color("Gloss")
+        tag_name = f"lam_{color}"
+        assert window.verbose_log.tag_cget(tag_name, "foreground") == color
+
+        arrow_index = window.verbose_log.search("→", "1.0", tk.END)
+        assert arrow_index
+        assert tag_name in window.verbose_log.tag_names(arrow_index)
+    finally:
+        window.close()
+
+
+def test_pair_list_marks_completed_rows(tk_root):
+    items = [
+        {"company": "One", "paperType": "Gloss 14pt"},
+        {"company": "Two", "paperType": "Matte 16pt"},
+    ]
+    orders = ["ORDER-1", "ORDER-2"]
+
+    window = LoadingWindow(tk_root, items, orders)
+    try:
+        first_row = window.orders_tree.item(window.pair_rows[0], "values")
+        assert "ORDER-1" in first_row[0]
+        assert first_row[1] == ""
+
+        window.update_status("Processing pair 1 of 2")
+        window.update_status("  Saved SAMPLE_flat_13in.pdf")
+        window.update_status("Finished pair 1 of 2")
+
+        completed_row = window.orders_tree.item(window.pair_rows[0], "values")
+        assert completed_row[0].endswith("✓")
+        assert completed_row[1] == "13in"
+        assert "done" in window.orders_tree.item(window.pair_rows[0], "tags")
+
+        second_row = window.orders_tree.item(window.pair_rows[1], "values")
+        assert not second_row[0].endswith("✓")
+        assert second_row[1] == ""
+    finally:
+        window.close()
+
+
+def test_pair_table_layout_adjustments(tk_root):
+    items = [{"company": f"Company {i}"} for i in range(8)]
+    orders = [f"ORDER-{i}" for i in range(8)]
+
+    window = LoadingWindow(tk_root, items, orders)
+    try:
+        assert window.orders_tree.column("pair", "anchor") == "center"
+        assert window.orders_tree.column("paper", "anchor") == "center"
+        assert int(window.orders_tree.cget("height")) == 5
+    finally:
+        window.close()
