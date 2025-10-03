@@ -131,15 +131,22 @@ def resolve_print_output_folder(
     if not is_p_template and name:
         is_p_template = Path(name).name.upper().startswith("P")
 
-    target_index = 2 if is_p_template else 1
+    root = None
+    for parent in parents:
+        if parent.name.lower() == "art":
+            root = parent.parent
+            break
 
-    try:
-        root = parents[target_index]
-    except IndexError:
-        if parents:
-            root = parents[len(parents) - 1]
-        else:
-            root = path.parent
+    if root is None:
+        target_index = 2 if is_p_template else 1
+
+        try:
+            root = parents[target_index]
+        except IndexError:
+            if parents:
+                root = parents[len(parents) - 1]
+            else:
+                root = path.parent
 
     folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
     return str(root / folder_name)
