@@ -169,7 +169,9 @@ def prepare_flat_review_entries(
         if idx is None or idx in skip_set:
             continue
 
-        art_path = candidate.get("art_path") or assignments.get(idx, "")
+        assigned_path = assignments.get(idx)
+        candidate_art_path = candidate.get("art_path") or ""
+        art_path = assigned_path or candidate_art_path
         if not art_path:
             continue
 
