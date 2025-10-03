@@ -216,6 +216,90 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(info[0], expected_flat)
             self.assertEqual(info[-1], assignments[0])
 
+    def test_flat_entries_prefer_assignment_over_placeholder_art_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "90002"
+            art_id = "ART901"
+            template = "P16"
+            art_folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(art_folder, exist_ok=True)
+            page1 = os.path.join(art_folder, "page1.pdf")
+            page2 = os.path.join(art_folder, "page2.pdf")
+            for path in (page1, page2):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            placeholder_path = os.path.join(tmp, "placeholder", "page1.pdf")
+
+            entries = [{"template": template, "art_path": placeholder_path}]
+            contexts = [
+                {
+                    "art_id": art_id,
+                    "order_id": order_id,
+                    "month_root": tmp,
+                    "art_root": "",
+                    "art_path": placeholder_path,
+                    "template": template,
+                }
+            ]
+            logs: list[str] = []
+
+            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+
+            self.assertIn(0, assignments)
+            self.assertFalse(skips)
+
+            filename_base = sanitize_filename_base("Placeholder File")
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": filename_base,
+                    "template": template,
+                    "paper": "SBS",
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": "",
+                    "lam": "",
+                    "art_path": placeholder_path,
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                }
+            ]
+
+            flat_entries, _ = prepare_flat_review_entries(
+                candidates,
+                assignments,
+                skips,
+                diagnostic=False,
+            )
+
+            self.assertEqual(len(flat_entries), 1)
+            _, flat_path, info = flat_entries[0]
+
+            assigned_folder = resolve_print_output_folder(
+                assignments[0],
+                template,
+                "",
+                diagnostic=False,
+            )
+            placeholder_print_folder = resolve_print_output_folder(
+                placeholder_path,
+                template,
+                "",
+                diagnostic=False,
+            )
+
+            expected_flat = os.path.join(
+                assigned_folder,
+                f"{filename_base}_flat_SBS.pdf",
+            )
+
+            self.assertEqual(flat_path, expected_flat)
+            self.assertEqual(info[0], expected_flat)
+            self.assertEqual(info[-1], assignments[0])
+            self.assertNotEqual(flat_path, os.path.join(placeholder_print_folder, f"{filename_base}_flat_SBS.pdf"))
+
 
 if __name__ == "__main__":
     unittest.main()
