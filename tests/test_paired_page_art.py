@@ -216,6 +216,60 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(info[0], expected_flat)
             self.assertEqual(info[-1], assignments[0])
 
+    def test_flat_entries_resolve_existing_flat_filename_for_p_templates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "36349"
+            art_id = "M38EA03C07"
+            template = "PO1"
+            art_dir = os.path.join(tmp, order_id, "art")
+            os.makedirs(art_dir, exist_ok=True)
+            art_path = os.path.join(art_dir, f"{art_id}.pdf")
+            with open(art_path, "w", encoding="utf-8"):
+                pass
+
+            print_dir = os.path.join(tmp, "print")
+            os.makedirs(print_dir, exist_ok=True)
+            actual_name = (
+                "36349 - McKenzie Crest Inc. - Justin - "
+                "PO1_M38EA03C07 - PO1_#1_print_flat_SBS.pdf"
+            )
+            with open(os.path.join(print_dir, actual_name), "w", encoding="utf-8"):
+                pass
+
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": "36349 - McKenzie Crest Inc",
+                    "template": template,
+                    "paper": "SBS",
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": "36349 - McKenzie Crest Inc. - Justin - #1",
+                    "lam": "Gloss",
+                    "art_path": art_path,
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                    "company": "McKenzie Crest Inc.",
+                    "created_by": "Justin",
+                }
+            ]
+
+            flat_entries, sample_entries = prepare_flat_review_entries(
+                candidates,
+                {},
+                [],
+                diagnostic=False,
+            )
+
+            self.assertFalse(sample_entries)
+            self.assertEqual(len(flat_entries), 1)
+            _, flat_path, info = flat_entries[0]
+            expected_path = os.path.join(print_dir, actual_name)
+
+            self.assertEqual(flat_path, expected_path)
+            self.assertEqual(info[0], expected_path)
+
 
 if __name__ == "__main__":
     unittest.main()
