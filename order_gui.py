@@ -64,6 +64,53 @@ except Exception:
     gw = None
 
 
+def _center_over_parent(window: tk.Toplevel, parent: tk.Misc) -> None:
+    """Center ``window`` over ``parent`` and keep it in front."""
+
+    if parent is None:
+        return
+
+    try:
+        parent.update_idletasks()
+    except Exception:
+        pass
+    window.update_idletasks()
+
+    width = window.winfo_width() or window.winfo_reqwidth()
+    height = window.winfo_height() or window.winfo_reqheight()
+
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+
+    try:
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        parent_w = parent.winfo_width() or parent.winfo_reqwidth()
+        parent_h = parent.winfo_height() or parent.winfo_reqheight()
+    except Exception:
+        parent_x = (screen_w - width) // 2
+        parent_y = (screen_h - height) // 2
+        parent_w = width
+        parent_h = height
+
+    x = parent_x + (parent_w - width) // 2
+    y = parent_y + (parent_h - height) // 2
+
+    x = max(0, min(int(x), screen_w - width))
+    y = max(0, min(int(y), screen_h - height))
+
+    window.geometry(f"+{x}+{y}")
+    try:
+        window.transient(parent)
+    except Exception:
+        pass
+    window.lift()
+    try:
+        window.focus_force()
+    except Exception:
+        pass
+
+
 if getattr(sys, "frozen", False):
     # PyInstaller extracts files to a temp folder stored in _MEIPASS
     APP_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
@@ -1907,6 +1954,7 @@ class App:
                 reason = ", ".join(item.get("reasons", item.get("reason", "")))
                 text.insert(tk.END, f"    {name}: {reason}\n")
         text.config(state="disabled")
+        _center_over_parent(win, self.root)
 
     def open_template_settings_editor(self, code: str | None = None):
         """Open a dialog for editing template settings JSON files.
@@ -2287,6 +2335,8 @@ class App:
                 tree.selection_set(code)
                 load_selected()
 
+        _center_over_parent(win, self.root)
+
     def save_settings(self):
         data = {
             "login_url": self.login_url_var.get(),
@@ -2413,6 +2463,7 @@ class App:
         )
 
         self.refresh_pairs_window()
+        _center_over_parent(win, self.root)
 
     def refresh_pairs_window(self):
         if not self._pairs_window_exists():
@@ -2536,11 +2587,8 @@ class App:
         for tmpl in sorted(missing):
             log.insert(tk.END, tmpl + "\n")
         log.config(state="disabled")
-        win.update_idletasks()
-        x = (win.winfo_screenwidth() - win.winfo_width()) // 2
-        y = (win.winfo_screenheight() - win.winfo_height()) // 2
-        win.geometry(f"+{x}+{y}")
         win.deiconify()
+        _center_over_parent(win, self.root)
 
     def show_missing_cut_window(self, missing: list[str]):
         """Display or update a popup listing missing cut files."""
@@ -2573,11 +2621,8 @@ class App:
         for path in sorted(missing):
             log.insert(tk.END, path + "\n")
         log.config(state="disabled")
-        win.update_idletasks()
-        x = (win.winfo_screenwidth() - win.winfo_width()) // 2
-        y = (win.winfo_screenheight() - win.winfo_height()) // 2
-        win.geometry(f"+{x}+{y}")
         win.deiconify()
+        _center_over_parent(win, self.root)
 
     def copy_cut_files(self):
         """Copy cut files for sample orders and show a warning if any are missing."""
@@ -3176,8 +3221,6 @@ class App:
         lines, warning = format_art_move_summary(art_files, zip_count)
         win = tk.Toplevel(self.root)
         win.title("Extract & Move Art")
-        win.transient(self.root)
-        win.grab_set()
         win.resizable(False, False)
 
         frame = ttk.Frame(win, padding=15)
@@ -3192,6 +3235,8 @@ class App:
                 anchor="w", pady=(0, 10)
             )
         ttk.Button(frame, text="OK", command=win.destroy).pack(anchor="e", pady=(5, 0))
+        _center_over_parent(win, self.root)
+        win.grab_set()
 
     def _arrange_windows(self, paths: list[str]):
         """Arrange folder windows in a grid if pygetwindow is available."""

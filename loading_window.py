@@ -31,6 +31,53 @@ from utils.common import (
 )
 
 
+def _center_over_parent(window: tk.Toplevel, parent: tk.Misc) -> None:
+    """Center ``window`` over ``parent`` and keep it focused."""
+
+    if parent is None:
+        return
+
+    try:
+        parent.update_idletasks()
+    except Exception:
+        pass
+    window.update_idletasks()
+
+    width = window.winfo_width() or window.winfo_reqwidth()
+    height = window.winfo_height() or window.winfo_reqheight()
+
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+
+    try:
+        parent_x = parent.winfo_rootx()
+        parent_y = parent.winfo_rooty()
+        parent_w = parent.winfo_width() or parent.winfo_reqwidth()
+        parent_h = parent.winfo_height() or parent.winfo_reqheight()
+    except Exception:
+        parent_x = (screen_w - width) // 2
+        parent_y = (screen_h - height) // 2
+        parent_w = width
+        parent_h = height
+
+    x = parent_x + (parent_w - width) // 2
+    y = parent_y + (parent_h - height) // 2
+
+    x = max(0, min(int(x), screen_w - width))
+    y = max(0, min(int(y), screen_h - height))
+
+    window.geometry(f"+{x}+{y}")
+    try:
+        window.transient(parent)
+    except Exception:
+        pass
+    window.lift()
+    try:
+        window.focus_force()
+    except Exception:
+        pass
+
+
 class LoadingWindow:
     """UI window to show progress while Illustrator runs."""
 
@@ -280,6 +327,7 @@ class LoadingWindow:
         self.window.geometry(f"{width}x{height}")
         self.window.minsize(min_width, min_height)
         self.window.resizable(True, True)
+        _center_over_parent(self.window, parent)
 
     def close(self):
         self.pb.stop()
@@ -699,6 +747,7 @@ class LoadingWindow:
             "<Destroy>",
             lambda event: self._on_pair_window_destroy(event) if event.widget is self.pair_window else None,
         )
+        _center_over_parent(self.pair_window, self.window)
 
     def _on_pair_window_destroy(self, event: tk.Event):
         self.pair_window = None
