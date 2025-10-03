@@ -9,7 +9,7 @@ import sys
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
 from urllib.parse import urljoin
 
 import tkinter as tk
@@ -145,6 +145,69 @@ def resolve_print_output_folder(
     return str(root / folder_name)
 
 
+def _guess_flat_filename(
+    print_folder: str,
+    paper: str,
+    candidate: Mapping[str, Any],
+    sequence: int,
+    fallback_base: str,
+) -> str:
+    """Return an existing ``*_flat_`` filename when metadata is incomplete."""
+
+    if not print_folder or not paper:
+        return ""
+
+    suffix = f"_flat_{paper}.pdf".lower()
+    try:
+        entries = os.listdir(print_folder)
+    except OSError:
+        return ""
+
+    order_id = str(candidate.get("order_id") or "").strip().lower()
+    art_id = str(candidate.get("art_id") or "").strip().lower()
+    template = str(candidate.get("template") or "").strip().lower()
+    company = str(candidate.get("company") or "").strip().lower()
+    created_by = str(candidate.get("created_by") or "").strip().lower()
+    glue = str(candidate.get("glue") or "")
+    glue_num = ""
+    m = re.search(r"#\s*(\d+)", glue)
+    if m:
+        glue_num = f"#{m.group(1)}".lower()
+    elif sequence:
+        glue_num = f"#{sequence}".lower()
+
+    optional_tokens = [
+        token
+        for token in [art_id, template, company, created_by, glue_num]
+        if token
+    ]
+
+    fallback_tokens = [
+        tok
+        for tok in re.split(r"[\s_-]+", fallback_base.lower())
+        if tok and tok not in {"flat", "lines"}
+    ]
+    optional_tokens.extend(tok for tok in fallback_tokens if tok not in optional_tokens)
+
+    best_name = ""
+    best_score = -1
+    for name in entries:
+        lower = name.lower()
+        if not lower.endswith(suffix):
+            continue
+        if order_id and order_id not in lower:
+            continue
+        score = 0
+        for token in optional_tokens:
+            if token and token in lower:
+                score += 1
+        if score > best_score:
+            best_name = name
+            best_score = score
+
+    return best_name
+
+
 def prepare_flat_review_entries(
     candidates: Sequence[dict],
     assignments: Mapping[int, str],
@@ -194,12 +257,28 @@ def prepare_flat_review_entries(
         )
 
         order_id = candidate.get("order_id") or ""
-        order_counts[order_id] = order_counts.get(order_id, 0) + 1
+        if order_id:
+            sequence = order_counts.get(order_id, 0) + 1
+            order_counts[order_id] = sequence
+        else:
+            sequence = 0
+
+        if print_folder and flat_path and not os.path.exists(flat_path):
+            resolved_name = _guess_flat_filename(
+                print_folder,
+                paper,
+                candidate,
+                sequence,
+                filename_base,
+            )
+            if resolved_name:
+                flat_path = os.path.join(print_folder, resolved_name)
+        seq_for_info = order_counts.get(order_id, sequence if sequence else 0)
 
         info = (
             flat_path,
             order_id,
-            order_counts[order_id],
+            seq_for_info,
             candidate.get("art_id") or "",
             candidate.get("glue") or "",
             template_code,
@@ -3538,6 +3617,8 @@ class App:
                     "template_path": temp_path,
                     "sample": sample,
                     "cut_src": cut_file_for_template(temp_path) if sample else "",
+                    "company": it.get("company", ""),
+                    "created_by": it.get("created_by", ""),
                 }
             )
             entry = {
