@@ -1,9 +1,0 @@
-requests>=2.32
-beautifulsoup4
-openai
-customtkinter
-packaging
-pygetwindow
-PyMuPDF
-Pillow
-jsonschema
