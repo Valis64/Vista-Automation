@@ -133,13 +133,22 @@ def resolve_print_output_folder(
 
     target_index = 2 if is_p_template else 1
 
-    try:
-        root = parents[target_index]
-    except IndexError:
-        if parents:
-            root = parents[len(parents) - 1]
-        else:
-            root = path.parent
+    root = None
+
+    if is_p_template:
+        for ancestor in parents:
+            if ancestor.name.lower() == "art":
+                root = ancestor.parent
+                break
+
+    if root is None:
+        try:
+            root = parents[target_index]
+        except IndexError:
+            if parents:
+                root = parents[len(parents) - 1]
+            else:
+                root = path.parent
 
     folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
     return str(root / folder_name)
