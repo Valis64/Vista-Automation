@@ -216,6 +216,30 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(info[0], expected_flat)
             self.assertEqual(info[-1], assignments[0])
 
+    def test_pb_templates_are_ignored_by_pairing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            art_pdf = os.path.join(tmp, "art.pdf")
+            with open(art_pdf, "w", encoding="utf-8"):
+                pass
+
+            entries = [{"template": "PB001", "art_path": art_pdf}]
+            contexts = [
+                {
+                    "art_id": "PBART",
+                    "order_id": "10001",
+                    "month_root": tmp,
+                    "art_root": "",
+                    "art_path": art_pdf,
+                    "template": "PB001",
+                }
+            ]
+            logs: list[str] = []
+
+            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+
+            self.assertFalse(assignments)
+            self.assertFalse(skips)
+
     def test_flat_entries_resolve_existing_flat_filename_for_p_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "36349"
