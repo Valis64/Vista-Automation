@@ -9,7 +9,7 @@ import sys
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 from urllib.parse import urljoin
 
 import tkinter as tk
@@ -143,6 +143,75 @@ def resolve_print_output_folder(
 
     folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
     return str(root / folder_name)
+
+
+def prepare_flat_review_entries(
+    candidates: Sequence[dict],
+    assignments: Mapping[int, str],
+    skip_indices: Iterable[int],
+    *,
+    diagnostic: bool,
+) -> tuple[
+    list[tuple[int, str, tuple[str, str, int, str, str, str, str, str]]],
+    list[tuple[int, str, str]],
+]:
+    """Build flat-review metadata using resolved art assignments."""
+
+    skip_set = set(skip_indices)
+    flat_entries: list[
+        tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
+    ] = []
+    sample_entries: list[tuple[int, str, str]] = []
+    order_counts: dict[str, int] = {}
+
+    for candidate in candidates:
+        idx = candidate.get("idx")
+        if idx is None or idx in skip_set:
+            continue
+
+        art_path = candidate.get("art_path") or assignments.get(idx, "")
+        if not art_path:
+            continue
+
+        filename_base = candidate.get("filename_base") or ""
+        if not filename_base:
+            continue
+
+        template_code = candidate.get("template") or ""
+        template_path = candidate.get("template_path") or ""
+        template_name = os.path.basename(template_path) if template_path else ""
+        paper = candidate.get("paper") or ""
+
+        print_folder = resolve_print_output_folder(
+            art_path,
+            template_code,
+            template_name,
+            diagnostic=diagnostic,
+        )
+        flat_path = os.path.join(
+            print_folder,
+            f"{filename_base}_flat_{paper}.pdf",
+        )
+
+        order_id = candidate.get("order_id") or ""
+        order_counts[order_id] = order_counts.get(order_id, 0) + 1
+
+        info = (
+            flat_path,
+            order_id,
+            order_counts[order_id],
+            candidate.get("art_id") or "",
+            candidate.get("glue") or "",
+            template_code,
+            candidate.get("lam") or "",
+            art_path,
+        )
+        flat_entries.append((idx, flat_path, info))
+
+        if candidate.get("sample") and candidate.get("cut_src"):
+            sample_entries.append((idx, candidate["cut_src"], print_folder))
+
+    return flat_entries, sample_entries
 
 
 SETTINGS_FILE = "settings.json"
@@ -3429,11 +3498,7 @@ class App:
         raw_pairs: list[dict] = []
         pair_orders_src: list[str] = []
         pair_contexts: list[dict] = []
-        flat_entries: list[
-            tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
-        ] = []
-        sample_entries: list[tuple[int, str, str]] = []
-        order_counts: dict[str, int] = {}
+        flat_candidates: list[dict] = []
         for idx, it in enumerate(items):
             art_id = ""
             template = ""
@@ -3446,6 +3511,7 @@ class App:
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
+            pair_idx = len(raw_pairs)
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             qty = get_item_quantity(it)
             sample = qty == 11
@@ -3455,47 +3521,25 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
-            # Determine expected flat PDF path for review
+            # Capture metadata needed to build the flat PDF review entry
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
-            flat_path = ""
-            if art_path and filename_base:
-                print_folder = resolve_print_output_folder(
-                    art_path,
-                    template,
-                    os.path.basename(temp_path) if temp_path else "",
-                    diagnostic=self.diagnostic_var.get(),
-                )
-                flat_path = os.path.join(
-                    print_folder,
-                    f"{filename_base}_flat_{paper}.pdf",
-                )
-                order_counts[order_id] = order_counts.get(order_id, 0) + 1
-                glue = it.get("gluetab", "")
-                flat_entries.append(
-                    (
-                        len(raw_pairs),
-                        flat_path,
-                        (
-                            flat_path,
-                            order_id,
-                            order_counts[order_id],
-                            art_id,
-                            glue,
-                            template,
-                            lam,
-                            art_path,
-                        ),
-                    )
-                )
-                if sample:
-                    cut_src = cut_file_for_template(temp_path)
-                    sample_entries.append(
-                        (
-                            len(raw_pairs),
-                            cut_src,
-                            print_folder,
-                        )
-                    )
+            glue = it.get("gluetab", "")
+            flat_candidates.append(
+                {
+                    "idx": pair_idx,
+                    "filename_base": filename_base,
+                    "template": template,
+                    "paper": paper,
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": glue,
+                    "lam": lam,
+                    "art_path": art_path,
+                    "template_path": temp_path,
+                    "sample": sample,
+                    "cut_src": cut_file_for_template(temp_path) if sample else "",
+                }
+            )
             entry = {
                 "art_id": art_id,
                 "template": template,
@@ -3533,6 +3577,13 @@ class App:
                 entry["art_path"] = assignments[idx]
             pairs_data.append(entry)
             pair_orders.append(pair_orders_src[idx])
+
+        flat_entries, sample_entries = prepare_flat_review_entries(
+            flat_candidates,
+            assignments,
+            skip_indices,
+            diagnostic=self.diagnostic_var.get(),
+        )
 
         self.sample_copy_info.extend(
             (cut_src, dest)
