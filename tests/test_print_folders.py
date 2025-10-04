@@ -20,6 +20,10 @@ class ResolvePrintFolderTest(unittest.TestCase):
         folder = resolve_print_output_folder(str(self.art_path), template_code="PZ999")
         self.assertEqual(Path(folder), self.art_path.parents[2] / PRINT_FOLDER_NAME)
 
+    def test_pb_template_code_stays_order_folder(self):
+        folder = resolve_print_output_folder(str(self.art_path), template_code="PB123")
+        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
+
     def test_p_template_filename_fallback(self):
         folder = resolve_print_output_folder(
             str(self.art_path), template_code="", template_filename="Ptemplate.ai"
