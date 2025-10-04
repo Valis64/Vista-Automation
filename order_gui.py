@@ -127,9 +127,19 @@ def resolve_print_output_folder(
     code = (template_code or "").strip()
     name = (template_filename or "").strip()
 
-    is_p_template = code.upper().startswith("P") if code else False
+    def _is_p_series(identifier: str) -> bool:
+        if not identifier:
+            return False
+        cleaned = identifier.strip().upper()
+        if not cleaned:
+            return False
+        if cleaned.startswith("PB"):
+            return False
+        return cleaned.startswith("P")
+
+    is_p_template = _is_p_series(code)
     if not is_p_template and name:
-        is_p_template = Path(name).name.upper().startswith("P")
+        is_p_template = _is_p_series(Path(name).name)
 
     target_index = 2 if is_p_template else 1
 

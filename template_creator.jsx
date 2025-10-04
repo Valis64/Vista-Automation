@@ -1377,10 +1377,16 @@ function processPair(pair, index) {
     var templateName = (pair.templateFile && pair.templateFile.name) ? String(pair.templateFile.name) : '';
     var isPTemplate = false;
     if (templateCode.length > 0) {
-        isPTemplate = templateCode.toUpperCase().charAt(0) === 'P';
+        var normalizedCode = templateCode.replace(/^\s+|\s+$/g, '').toUpperCase();
+        if (normalizedCode.length > 0 && normalizedCode.indexOf('PB') !== 0 && normalizedCode.charAt(0) === 'P') {
+            isPTemplate = true;
+        }
     }
     if (!isPTemplate && templateName.length > 0) {
-        isPTemplate = templateName.toUpperCase().charAt(0) === 'P';
+        var normalizedName = templateName.replace(/^\s+|\s+$/g, '').toUpperCase();
+        if (normalizedName.length > 0 && normalizedName.indexOf('PB') !== 0 && normalizedName.charAt(0) === 'P') {
+            isPTemplate = true;
+        }
     }
     var destRoot = getAncestorFolder(pair.artFile, isPTemplate ? 2 : 1);
     if (destRoot && !(destRoot instanceof Folder)) {
