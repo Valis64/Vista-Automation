@@ -3716,10 +3716,11 @@ class App:
         loader = LoadingWindow(self.root, items, pair_orders)
         self.run_start_time = None
 
+        self.root.after(0, self.root.withdraw)
+        self.root.after(0, loader.update_status, "Launching Illustrator...")
+
         def worker():
             try:
-                self.root.withdraw()
-                loader.update_status("Launching Illustrator...")
                 def progress_hook(msg: str):
                     if self.run_start_time is None:
                         self.run_start_time = time.time()
