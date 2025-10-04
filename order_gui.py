@@ -109,6 +109,36 @@ def ensure_paper_summary_dir():
             pass
 
 
+_P_TEMPLATE_CODE_RE = re.compile(r"^P(?!B)[A-Z0-9]*\d[A-Z0-9]*$")
+
+
+def _looks_like_paired_template(identifier: str) -> bool:
+    """Return ``True`` when the identifier is a paired template code."""
+
+    if not identifier:
+        return False
+
+    candidate = identifier.strip().upper()
+    if not candidate:
+        return False
+
+    return bool(_P_TEMPLATE_CODE_RE.match(candidate))
+
+
+def _filename_indicates_paired_template(name: str) -> bool:
+    """Infer paired template usage from a filename when no code is provided."""
+
+    if not name:
+        return False
+
+    stem = Path(name).stem.upper()
+    if _looks_like_paired_template(stem):
+        return True
+
+    tokens = [token for token in re.split(r"[^A-Z0-9]+", stem) if token]
+    return any(_looks_like_paired_template(token) for token in tokens)
+
+
 def resolve_print_output_folder(
     art_path: str,
     template_code: str = "",
@@ -128,10 +158,9 @@ def resolve_print_output_folder(
     name = (template_filename or "").strip()
 
     uppercase_code = code.upper()
-    is_p_template = uppercase_code.startswith("P") and not uppercase_code.startswith("PB") if code else False
+    is_p_template = _looks_like_paired_template(uppercase_code)
     if not is_p_template and name:
-        uppercase_name = Path(name).name.upper()
-        is_p_template = uppercase_name.startswith("P") and not uppercase_name.startswith("PB")
+        is_p_template = _filename_indicates_paired_template(name)
 
     target_index = 2 if is_p_template else 1
 
