@@ -127,9 +127,15 @@ def resolve_print_output_folder(
     code = (template_code or "").strip()
     name = (template_filename or "").strip()
 
-    is_p_template = code.upper().startswith("P") if code else False
+    is_p_template = False
+    if code:
+        upper_code = code.upper()
+        if upper_code.startswith("P") and not upper_code.startswith("PB"):
+            is_p_template = True
     if not is_p_template and name:
-        is_p_template = Path(name).name.upper().startswith("P")
+        upper_name = Path(name).name.upper()
+        if upper_name.startswith("P") and not upper_name.startswith("PB"):
+            is_p_template = True
 
     target_index = 2 if is_p_template else 1
 
