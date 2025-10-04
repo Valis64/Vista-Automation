@@ -155,6 +155,39 @@ def resolve_print_output_folder(
     return str(root / folder_name)
 
 
+def build_aligned_selection(
+    items_src: Sequence[Mapping[str, Any]],
+    pairs_src: Sequence[Mapping[str, Any]] | None,
+    pair_flags: Sequence[Any] | None,
+) -> list[tuple[int, Mapping[str, Any], Mapping[str, Any] | None]]:
+    """Return the selected rows while keeping their original indices aligned."""
+
+    if not items_src:
+        return []
+
+    aligned: list[tuple[int, Mapping[str, Any], Mapping[str, Any] | None]] = []
+    if pair_flags:
+        for idx, (item, flag) in enumerate(zip(items_src, pair_flags)):
+            try:
+                selected = bool(flag.get())
+            except AttributeError:
+                selected = bool(flag)
+            if not selected:
+                continue
+            pair = None
+            if pairs_src and idx < len(pairs_src):
+                pair = pairs_src[idx]
+            aligned.append((idx, item, pair))
+    else:
+        for idx, item in enumerate(items_src):
+            pair = None
+            if pairs_src and idx < len(pairs_src):
+                pair = pairs_src[idx]
+            aligned.append((idx, item, pair))
+
+    return aligned
+
+
 def _guess_flat_filename(
     print_folder: str,
     paper: str,
@@ -3575,8 +3608,8 @@ class App:
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
-        items = self.get_selected_items()
-        if not items:
+        aligned_rows = build_aligned_selection(items_src, pairs_src, self.pair_vars)
+        if not aligned_rows:
             messagebox.showerror("Error", "No pairs selected")
             return
         # Update current item edits
@@ -3588,13 +3621,16 @@ class App:
         pair_orders_src: list[str] = []
         pair_contexts: list[dict] = []
         flat_candidates: list[dict] = []
-        for idx, it in enumerate(items):
+        items = [item for _, item, _ in aligned_rows]
+        for _, it, pair_data in aligned_rows:
             art_id = ""
             template = ""
-            if pairs_src and idx < len(pairs_src):
-                art_id = pairs_src[idx].get("art_id", "")
-                template = pairs_src[idx].get("template", "")
-                order_id = pairs_src[idx].get("order_id", it.get("order_id", self.order_id_var.get()))
+            if pair_data:
+                art_id = pair_data.get("art_id", "")
+                template = pair_data.get("template", "")
+                order_id = pair_data.get(
+                    "order_id", it.get("order_id", self.order_id_var.get())
+                )
             else:
                 order_id = it.get("order_id", self.order_id_var.get())
             art_root = it.get("art_dir", self.art_dir_var.get())
