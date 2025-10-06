@@ -824,10 +824,12 @@ function hasBleedName(item) {
     return false;
 }
 
-function collectBleedPaths(doc, colorFn) {
+function collectBleedPaths(doc, colorFn, pathItemsCache) {
     var paths = [];
-    for (var k = 0; k < doc.pathItems.length; k++) {
-        var p = doc.pathItems[k];
+    var pathItems = pathItemsCache || doc.pathItems;
+    var count = pathItems.length;
+    for (var k = 0; k < count; k++) {
+        var p = pathItems[k];
         if (p.hidden || p.locked) continue;
         if (p.stroked && (colorFn(p.strokeColor) || hasBleedName(p))) {
             paths.push(p);
@@ -848,8 +850,14 @@ function findBleedPath(doc, colorFn, createLayer) {
 
     var tries = [1, 3, 5];
     var paths = [];
+    var pathItemsCollection = doc.pathItems;
+    var pathItemsSnapshot = [];
+    var count = pathItemsCollection.length;
+    for (var i = 0; i < count; i++) {
+        pathItemsSnapshot.push(pathItemsCollection[i]);
+    }
     for (var t = 0; t < tries.length && paths.length === 0; t++) {
-        paths = collectBleedPaths(doc, function(c){ return colorFn(c, tries[t]); });
+        paths = collectBleedPaths(doc, function(c){ return colorFn(c, tries[t]); }, pathItemsSnapshot);
     }
 
     for (var i = 0; i < paths.length; i++) {
@@ -884,8 +892,10 @@ function getBleedBounds(doc, colorFn) {
 function findLargestBleedPath(container, colorFn) {
     var best = null;
     var bestArea = 0;
-    for (var i = 0; i < container.pathItems.length; i++) {
-        var p = container.pathItems[i];
+    var pathItems = container.pathItems;
+    var count = pathItems.length;
+    for (var i = 0; i < count; i++) {
+        var p = pathItems[i];
         if (p.stroked && (colorFn(p.strokeColor) || hasBleedName(p))) {
             var b = p.geometricBounds;
             var area = Math.abs(b[2] - b[0]) * Math.abs(b[1] - b[3]);
@@ -901,8 +911,10 @@ function findLargestBleedPath(container, colorFn) {
 function getBleedBoundsIn(container, colorFn) {
     var best = null;
     var bestArea = 0;
-    for (var i = 0; i < container.pathItems.length; i++) {
-        var p = container.pathItems[i];
+    var pathItems = container.pathItems;
+    var count = pathItems.length;
+    for (var i = 0; i < count; i++) {
+        var p = pathItems[i];
         if (p.stroked && (colorFn(p.strokeColor) || hasBleedName(p))) {
             var b = p.geometricBounds;
             var area = Math.abs(b[2] - b[0]) * Math.abs(b[1] - b[3]);
