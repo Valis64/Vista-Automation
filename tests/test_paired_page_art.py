@@ -1,6 +1,9 @@
 import os
 import tempfile
 import unittest
+import zipfile
+
+import order_gui
 
 from order_gui import (
     find_template_file,
@@ -293,6 +296,70 @@ class ResolvePairedPageArtTests(unittest.TestCase):
 
             self.assertEqual(flat_path, expected_path)
             self.assertEqual(info[0], expected_path)
+
+
+class MoveArtToArtFoldersTests(unittest.TestCase):
+    class _Var:
+        def __init__(self, value: str = "") -> None:
+            self.value = value
+
+        def get(self) -> str:
+            return self.value
+
+        def set(self, value: str) -> None:
+            self.value = value
+
+    def test_warns_when_page2_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            month_dir = os.path.join(tmp, "2024-01")
+            order_id = "1001"
+            order_dir = os.path.join(month_dir, order_id)
+            os.makedirs(order_dir, exist_ok=True)
+            zip_path = os.path.join(order_dir, "PO1.zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                zf.writestr("page1.pdf", "data")
+
+            app = order_gui.App.__new__(order_gui.App)
+            app.items = [
+                {
+                    "order_id": order_id,
+                    "month_dir": month_dir,
+                    "template_dir": "",
+                    "art_dir": "",
+                },
+                {
+                    "order_id": order_id,
+                    "month_dir": month_dir,
+                    "template_dir": "",
+                    "art_dir": "",
+                },
+            ]
+            app.batch_items = []
+            app.pairs = [
+                {"art_id": "PO1", "template": "PO1"},
+                {"art_id": "PO1", "template": "PO1B"},
+            ]
+            app.batch_pairs = []
+            app.month_dir_var = self._Var(month_dir)
+            app.art_dir_var = self._Var("")
+            app.template_dir_var = self._Var("")
+            app.order_id_var = self._Var(order_id)
+
+            summary: dict[str, list[str]] = {}
+
+            def fake_summary(art_files: int, zip_count: int, *, extra_warnings=None):
+                summary["warnings"] = list(extra_warnings or [])
+
+            app._show_art_move_summary = fake_summary  # type: ignore[method-assign]
+
+            logs: list[str] = []
+            app.log_message = logs.append  # type: ignore[method-assign]
+
+            app.move_art_to_art_folders()
+
+            self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
+            self.assertIn("warnings", summary)
+            self.assertTrue(any("page2.pdf not found" in msg for msg in summary["warnings"]))
 
 
 if __name__ == "__main__":

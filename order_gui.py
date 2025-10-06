@@ -3201,6 +3201,7 @@ class App:
             messagebox.showerror("Error", "Set month folder first")
             return
         items = self.items if self.items else self.batch_items
+        pairs_src = self.pairs if self.pairs else self.batch_pairs
         moved_files = 0
         extracted_zips = 0
         seen: set[str] = set()
@@ -3213,9 +3214,68 @@ class App:
             files, zips = move_art_to_folder(order_dir)
             moved_files += files
             extracted_zips += zips
-        self._show_art_move_summary(moved_files, extracted_zips)
 
-    def _show_art_move_summary(self, art_files: int, zip_count: int):
+        raw_pairs: list[dict] = []
+        pair_contexts: list[dict] = []
+        for idx, it in enumerate(items):
+            art_id = ""
+            template = ""
+            if pairs_src and idx < len(pairs_src):
+                art_id = pairs_src[idx].get("art_id", "")
+                template = pairs_src[idx].get("template", "")
+            art_root = it.get("art_dir", self.art_dir_var.get())
+            temp_root = it.get("template_dir", self.template_dir_var.get())
+            month_dir = it.get("month_dir", self.month_dir_var.get())
+            order_id = it.get("order_id", self.order_id_var.get())
+            art_path = find_art_file(art_root, art_id, month_dir, order_id)
+            temp_path = find_template_file(temp_root, template)
+            raw_pairs.append(
+                {
+                    "art_id": art_id,
+                    "template": template,
+                    "art_path": art_path,
+                    "template_path": temp_path,
+                }
+            )
+            pair_contexts.append(
+                {
+                    "art_id": art_id,
+                    "art_root": art_root,
+                    "month_root": month_dir,
+                    "order_id": order_id,
+                    "art_path": art_path,
+                    "template": template,
+                }
+            )
+
+        resolve_logs: list[str] = []
+
+        def _log_and_capture(message: str):
+            resolve_logs.append(message)
+            self.log_message(message)
+
+        if raw_pairs and pair_contexts:
+            resolve_paired_page_art(raw_pairs, pair_contexts, _log_and_capture)
+
+        missing_page_warnings = [
+            msg
+            for msg in resolve_logs
+            if "page1.pdf not found" in msg or "page2.pdf not found" in msg
+        ]
+
+        self._show_art_move_summary(
+            moved_files,
+            extracted_zips,
+            extra_warnings=missing_page_warnings,
+        )
+
+    def _show_art_move_summary(
+        self,
+        art_files: int,
+        zip_count: int,
+        *,
+        extra_warnings: Sequence[str] | None = None,
+    ):
         lines, warning = format_art_move_summary(art_files, zip_count)
         win = tk.Toplevel(self.root)
         win.title("Extract & Move Art")
@@ -3230,8 +3290,13 @@ class App:
             ttk.Label(frame, text=line, justify="left", anchor="w").pack(
                 anchor="w", pady=(0, 4)
             )
+        warnings: list[str] = []
         if warning:
-            tk.Label(frame, text=warning, fg="red", justify="left", anchor="w").pack(
+            warnings.append(warning)
+        if extra_warnings:
+            warnings.extend(extra_warnings)
+        for msg in warnings:
+            tk.Label(frame, text=msg, fg="red", justify="left", anchor="w").pack(
                 anchor="w", pady=(0, 10)
             )
         ttk.Button(frame, text="OK", command=win.destroy).pack(anchor="e", pady=(5, 0))
