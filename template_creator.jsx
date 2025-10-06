@@ -1051,14 +1051,15 @@ function createClippingGroup(doc, bleedGroup) {
         }
     }
 
-    for (var s = 0; s < doc.pageItems.length; s++) {
-        doc.pageItems[s].selected = true;
+    var items = doc.pageItems;
+    var snapshot = [];
+    for (var idx = 0; idx < items.length; idx++) {
+        snapshot.push(items[idx]);
     }
 
     var grp = doc.groupItems.add();
-    var sel = doc.selection;
-    for (var i = sel.length - 1; i >= 0; i--) {
-        sel[i].move(grp, ElementPlacement.PLACEATEND);
+    for (var i = 0; i < snapshot.length; i++) {
+        snapshot[i].move(grp, ElementPlacement.PLACEATEND);
     }
 
     mask.move(grp, ElementPlacement.PLACEATBEGINNING);
