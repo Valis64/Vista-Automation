@@ -797,16 +797,14 @@ function colorMatch(color, c, m, y, k, tol) {
 
 function isArtBleedColor(color, tol) {
     if (!color) return false;
-    if (color.typename === 'SpotColor' && color.spot &&
-        color.spot.name && color.spot.name.toLowerCase() === 'bleed') return true;
+    if (usesBleedSpot(color)) return true;
     tol = tol || 1;
     return colorMatch(color, 100, 0, 100, 0, tol) || colorMatch(color, 0, 100, 100, 0, tol);
 }
 
 function isTemplateBleedColor(color, tol) {
     if (!color) return false;
-    if (color.typename === 'SpotColor' && color.spot &&
-        color.spot.name && color.spot.name.toLowerCase() === 'bleed') return true;
+    if (usesBleedSpot(color)) return true;
     tol = tol || 1;
     return colorMatch(color, 100, 0, 100, 0, tol) || colorMatch(color, 0, 100, 100, 0, tol);
 }
@@ -836,6 +834,48 @@ function collectBleedPaths(doc, colorFn) {
     return paths;
 }
 
+function findBleedSpot(doc) {
+    if (!doc) return null;
+    var i;
+    if (doc.spots && doc.spots.length) {
+        for (i = 0; i < doc.spots.length; i++) {
+            var spot = doc.spots[i];
+            if (spot && spot.name && spot.name.toLowerCase() === 'bleed') {
+                return spot;
+            }
+        }
+    }
+    if (doc.swatches && doc.swatches.length) {
+        for (i = 0; i < doc.swatches.length; i++) {
+            var sw = doc.swatches[i];
+            if (!sw) continue;
+            var swName = (sw.name || '').toLowerCase();
+            if (swName === 'bleed' && sw.color && sw.color.typename === 'SpotColor' && sw.color.spot) {
+                return sw.color.spot;
+            }
+            if (sw.color && sw.color.typename === 'SpotColor' && sw.color.spot &&
+                sw.color.spot.name && sw.color.spot.name.toLowerCase() === 'bleed') {
+                return sw.color.spot;
+            }
+        }
+    }
+    return null;
+}
+
+function usesBleedSpot(color, spot) {
+    if (!color || color.typename !== 'SpotColor' || !color.spot) return false;
+    var colorSpot = color.spot;
+    var colorSpotName = (colorSpot.name || '').toLowerCase();
+    if (spot && colorSpot === spot) return true;
+    if (colorSpotName === 'bleed') return true;
+    if (spot && spot.name && colorSpotName === spot.name.toLowerCase()) return true;
+    if (colorSpot.color && colorSpot.color.typename === 'CMYKColor' &&
+        colorMatch(colorSpot.color, 0, 100, 100, 0, 0)) {
+        return true;
+    }
+    return false;
+}
+
 function findBleedPath(doc, colorFn, createLayer) {
     var bleedGroup;
     if (createLayer) {
@@ -844,6 +884,30 @@ function findBleedPath(doc, colorFn, createLayer) {
         bleedGroup = bleedLayer.groupItems.add();
     } else {
         bleedGroup = doc.groupItems.add();
+    }
+
+    // First try: explicitly named bleed paths
+    for (var n = 0; n < doc.pathItems.length; n++) {
+        var item = doc.pathItems[n];
+        if (item.hidden || item.locked) continue;
+        if (item.stroked && hasBleedName(item)) {
+            item.move(bleedGroup, ElementPlacement.PLACEATEND);
+        }
+    }
+    if (bleedGroup.pageItems.length > 0) return bleedGroup;
+
+    // Second try: look for the Bleed spot color directly
+    var bleedSpot = findBleedSpot(doc);
+    if (bleedSpot) {
+        for (var s = 0; s < doc.pathItems.length; s++) {
+            var spotPath = doc.pathItems[s];
+            if (spotPath.hidden || spotPath.locked) continue;
+            if (!spotPath.stroked) continue;
+            if (usesBleedSpot(spotPath.strokeColor, bleedSpot)) {
+                spotPath.move(bleedGroup, ElementPlacement.PLACEATEND);
+                return bleedGroup;
+            }
+        }
     }
 
     var tries = [1, 3, 5];
