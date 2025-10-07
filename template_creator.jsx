@@ -817,6 +817,15 @@ function makeRGBColor(r, g, b) {
     return c;
 }
 
+function normalizeItemName(name) {
+    if (!name) return '';
+    return String(name).replace(/\s+/g, '').toLowerCase();
+}
+
+function isTemplateClipName(name) {
+    return normalizeItemName(name) === '<path>';
+}
+
 function hasBleedName(item) {
     if (!item) return false;
     if (item.name && item.name.toLowerCase() === 'bleed') return true;
@@ -850,18 +859,39 @@ function findBleedPath(doc, colorFn, createLayer) {
 
     var tries = [1, 3, 5];
     var paths = [];
+    var preferredMask = null;
     var pathItemsCollection = doc.pathItems;
     var pathItemsSnapshot = [];
     var count = pathItemsCollection.length;
     for (var i = 0; i < count; i++) {
-        pathItemsSnapshot.push(pathItemsCollection[i]);
+        var pathItem = pathItemsCollection[i];
+        pathItemsSnapshot.push(pathItem);
+        if (!preferredMask && pathItem && isTemplateClipName(pathItem.name)) {
+            preferredMask = pathItem;
+        }
+    }
+    if (!preferredMask && doc.compoundPathItems && doc.compoundPathItems.length) {
+        for (var c = 0; c < doc.compoundPathItems.length; c++) {
+            var comp = doc.compoundPathItems[c];
+            if (comp && !comp.hidden && !comp.locked && isTemplateClipName(comp.name)) {
+                preferredMask = comp;
+                break;
+            }
+        }
+    }
+    if (preferredMask) {
+        preferredMask.move(bleedGroup, ElementPlacement.PLACEATEND);
     }
     for (var t = 0; t < tries.length && paths.length === 0; t++) {
         paths = collectBleedPaths(doc, function(c){ return colorFn(c, tries[t]); }, pathItemsSnapshot);
     }
 
-    for (var i = 0; i < paths.length; i++) {
-        paths[i].move(bleedGroup, ElementPlacement.PLACEATEND);
+    for (var j = 0; j < paths.length; j++) {
+        var candidate = paths[j];
+        if (!candidate) continue;
+        if (preferredMask && candidate === preferredMask) continue;
+        if (preferredMask && preferredMask.typename === 'CompoundPathItem' && candidate.parent === preferredMask) continue;
+        candidate.move(bleedGroup, ElementPlacement.PLACEATEND);
     }
 
     if (bleedGroup.pageItems.length === 0) alertAndExit('Bleed paths not found.');
@@ -1036,18 +1066,32 @@ function getBottomArtLayer(doc) {
 }
 
 function createClippingGroup(doc, bleedGroup) {
-    if (bleedGroup.pathItems.length === 0) {
+    var preferredMask = null;
+    var pageItems = bleedGroup.pageItems;
+    if (pageItems && pageItems.length) {
+        for (var idx = 0; idx < pageItems.length; idx++) {
+            var pageItem = pageItems[idx];
+            if (pageItem && isTemplateClipName(pageItem.name)) {
+                preferredMask = pageItem;
+                break;
+            }
+        }
+    }
+    if (bleedGroup.pathItems.length === 0 && !preferredMask) {
         alertAndExit('No bleed path for clipping');
     }
-    var mask = bleedGroup.pathItems[0];
-    var bestArea = 0;
-    for (var i = 0; i < bleedGroup.pathItems.length; i++) {
-        var p = bleedGroup.pathItems[i];
-        var b = p.visibleBounds;
-        var area = Math.abs(b[2] - b[0]) * Math.abs(b[1] - b[3]);
-        if (area > bestArea) {
-            bestArea = area;
-            mask = p;
+    var mask = preferredMask;
+    if (!mask) {
+        mask = bleedGroup.pathItems[0];
+        var bestArea = 0;
+        for (var i = 0; i < bleedGroup.pathItems.length; i++) {
+            var p = bleedGroup.pathItems[i];
+            var b = p.visibleBounds;
+            var area = Math.abs(b[2] - b[0]) * Math.abs(b[1] - b[3]);
+            if (area > bestArea) {
+                bestArea = area;
+                mask = p;
+            }
         }
     }
 
@@ -1063,7 +1107,12 @@ function createClippingGroup(doc, bleedGroup) {
     }
 
     mask.move(grp, ElementPlacement.PLACEATBEGINNING);
-    mask.clipping = true;
+    if (mask.typename === 'CompoundPathItem' && mask.pathItems && mask.pathItems.length > 0) {
+        mask.pathItems[0].clipping = true;
+    }
+    if (typeof mask.clipping !== 'undefined') {
+        mask.clipping = true;
+    }
     grp.clipped = true;
     grp.selected = true;
     // Return the grouped artwork so it can be duplicated into the template
