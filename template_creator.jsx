@@ -819,8 +819,18 @@ function makeRGBColor(r, g, b) {
 
 function hasBleedName(item) {
     if (!item) return false;
-    if (item.name && item.name.toLowerCase() === 'bleed') return true;
-    if (item.layer && item.layer.name && item.layer.name.toLowerCase() === 'bleed') return true;
+    function normalize(name) {
+        if (!name) return '';
+        return name.replace(/[<>\s]/g, '').toLowerCase();
+    }
+
+    var itemName = normalize(item.name);
+    if (itemName === 'bleed' || itemName === 'path') return true;
+
+    if (item.layer && item.layer.name) {
+        var layerName = normalize(item.layer.name);
+        if (layerName === 'bleed' || layerName === 'path') return true;
+    }
     return false;
 }
 
@@ -844,6 +854,27 @@ function findBleedPath(doc, colorFn, createLayer) {
         bleedGroup = bleedLayer.groupItems.add();
     } else {
         bleedGroup = doc.groupItems.add();
+    }
+
+    var directNames = ['<Path>', '<path>'];
+    for (var n = 0; n < directNames.length; n++) {
+        var namedPath = null;
+        try {
+            namedPath = doc.pageItems.getByName(directNames[n]);
+        } catch (e) {
+            namedPath = null;
+        }
+
+        if (namedPath) {
+            if (namedPath.length && !namedPath.typename) {
+                for (var np = 0; np < namedPath.length; np++) {
+                    namedPath[np].move(bleedGroup, ElementPlacement.PLACEATEND);
+                }
+            } else {
+                namedPath.move(bleedGroup, ElementPlacement.PLACEATEND);
+            }
+            return bleedGroup;
+        }
     }
 
     var tries = [1, 3, 5];
