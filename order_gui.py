@@ -9,7 +9,7 @@ import sys
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple
 from urllib.parse import urljoin
 
 import tkinter as tk
@@ -2972,7 +2972,6 @@ class App:
 
     def save_json(self):
         items_src = self.batch_items if self.batch_items else self.items
-        pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
@@ -2980,19 +2979,17 @@ class App:
         cur = items_src[self.index]
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
-        items = self.get_selected_items()
+        items, selected_pairs, _ = self.get_selected_items()
         raw_pairs: list[dict] = []
         pair_contexts: list[dict] = []
         for idx, it in enumerate(items):
-            art_id = ""
-            template = ""
-            if pairs_src and idx < len(pairs_src):
-                art_id = pairs_src[idx].get("art_id", "")
-                template = pairs_src[idx].get("template", "")
+            pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
+            art_id = pair.get("art_id", "")
+            template = pair.get("template", "")
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
-            order_id = it.get("order_id", self.order_id_var.get())
+            order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             temp_path = find_template_file(temp_root, template)
             paper = extract_paper_type(temp_path)
@@ -3076,15 +3073,35 @@ class App:
             traceback.print_exc()
             messagebox.showerror("Error", str(exc))
 
-    def get_selected_items(self) -> list[dict]:
+    def get_selected_items(self) -> Tuple[list[dict], list[dict], list[int]]:
         items_src = self.items if self.items else self.batch_items
+        pairs_src = self.pairs if self.pairs else self.batch_pairs
+        if not items_src:
+            return [], [], []
+
+        def _pair_for_index(index: int) -> dict:
+            if pairs_src and index < len(pairs_src):
+                return pairs_src[index]
+            return {}
+
         if not self.pair_vars:
-            return items_src
-        selected = []
-        for item, var in zip(items_src, self.pair_vars):
-            if var.get():
-                selected.append(item)
-        return selected
+            indices = list(range(len(items_src)))
+            pairs = [_pair_for_index(i) for i in indices]
+            return list(items_src), pairs, indices
+
+        selected_items: list[dict] = []
+        selected_pairs: list[dict] = []
+        selected_indices: list[int] = []
+        for idx, item in enumerate(items_src):
+            include = True
+            if idx < len(self.pair_vars):
+                include = bool(self.pair_vars[idx].get())
+            if include:
+                selected_items.append(item)
+                selected_pairs.append(_pair_for_index(idx))
+                selected_indices.append(idx)
+
+        return selected_items, selected_pairs, selected_indices
 
     def get_illustrator_path(self) -> str:
         path = self.ill_path_var.get()
@@ -3571,11 +3588,10 @@ class App:
     def run_illustrator(self):
         self.sample_copy_info.clear()
         items_src = self.items if self.items else self.batch_items
-        pairs_src = self.pairs if self.items else self.batch_pairs
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
-        items = self.get_selected_items()
+        items, selected_pairs, _ = self.get_selected_items()
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
@@ -3589,14 +3605,10 @@ class App:
         pair_contexts: list[dict] = []
         flat_candidates: list[dict] = []
         for idx, it in enumerate(items):
-            art_id = ""
-            template = ""
-            if pairs_src and idx < len(pairs_src):
-                art_id = pairs_src[idx].get("art_id", "")
-                template = pairs_src[idx].get("template", "")
-                order_id = pairs_src[idx].get("order_id", it.get("order_id", self.order_id_var.get()))
-            else:
-                order_id = it.get("order_id", self.order_id_var.get())
+            pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
+            art_id = pair.get("art_id", "")
+            template = pair.get("template", "")
+            order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
