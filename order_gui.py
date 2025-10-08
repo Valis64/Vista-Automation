@@ -161,6 +161,7 @@ def _guess_flat_filename(
     candidate: Mapping[str, Any],
     sequence: int,
     fallback_base: str,
+    exclude: Iterable[str] | None = None,
 ) -> str:
     """Return an existing ``*_flat_`` filename when metadata is incomplete."""
 
@@ -172,6 +173,8 @@ def _guess_flat_filename(
         entries = os.listdir(print_folder)
     except OSError:
         return ""
+
+    excluded = set(exclude or [])
 
     order_id = str(candidate.get("order_id") or "").strip().lower()
     art_id = str(candidate.get("art_id") or "").strip().lower()
@@ -202,6 +205,8 @@ def _guess_flat_filename(
     best_name = ""
     best_score = -1
     for name in entries:
+        if excluded and name in excluded:
+            continue
         lower = name.lower()
         if not lower.endswith(suffix):
             continue
@@ -236,6 +241,7 @@ def prepare_flat_review_entries(
     ] = []
     sample_entries: list[tuple[int, str, str]] = []
     order_counts: dict[str, int] = {}
+    used_flat_paths: set[str] = set()
 
     for candidate in candidates:
         idx = candidate.get("idx")
@@ -280,9 +286,11 @@ def prepare_flat_review_entries(
                 candidate,
                 sequence,
                 filename_base,
+                exclude=used_flat_paths,
             )
             if resolved_name:
                 flat_path = os.path.join(print_folder, resolved_name)
+                used_flat_paths.add(resolved_name)
         seq_for_info = order_counts.get(order_id, sequence if sequence else 0)
 
         info = (
