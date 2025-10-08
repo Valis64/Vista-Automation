@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from order_gui import (
     find_template_file,
@@ -293,6 +294,96 @@ class ResolvePairedPageArtTests(unittest.TestCase):
 
             self.assertEqual(flat_path, expected_path)
             self.assertEqual(info[0], expected_path)
+
+    def test_flat_fallback_assigns_unique_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "50000"
+            art_id = "ARTFALL01"
+            template = "PO1"
+            paper = "SBS"
+
+            art_dir = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(art_dir, exist_ok=True)
+            art_path = os.path.join(art_dir, "page1.pdf")
+            with open(art_path, "w", encoding="utf-8"):
+                pass
+
+            print_dir = os.path.join(tmp, order_id, "print")
+            os.makedirs(print_dir, exist_ok=True)
+
+            fallback_names = [
+                "50000_candidate_first_po1_flat_SBS.pdf",
+                "50000_candidate_second_po1_flat_SBS.pdf",
+            ]
+
+            filename_base_a = "50000 Candidate A"
+            filename_base_b = "50000 Candidate B"
+
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": filename_base_a,
+                    "template": template,
+                    "paper": paper,
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": "",
+                    "lam": "",
+                    "art_path": art_path,
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                    "company": "Example Co",
+                    "created_by": "Tester",
+                },
+                {
+                    "idx": 1,
+                    "filename_base": filename_base_b,
+                    "template": template,
+                    "paper": paper,
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": "",
+                    "lam": "",
+                    "art_path": art_path,
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                    "company": "Example Co",
+                    "created_by": "Tester",
+                },
+            ]
+
+            default_paths = {
+                os.path.join(print_dir, f"{filename_base_a}_flat_{paper}.pdf"),
+                os.path.join(print_dir, f"{filename_base_b}_flat_{paper}.pdf"),
+            }
+
+            real_exists = os.path.exists
+
+            def fake_exists(path: str) -> bool:
+                if path in default_paths:
+                    return False
+                return real_exists(path)
+
+            with patch("order_gui.os.listdir", return_value=fallback_names), patch(
+                "order_gui.os.path.exists", side_effect=fake_exists
+            ):
+                flat_entries, sample_entries = prepare_flat_review_entries(
+                    candidates,
+                    {},
+                    [],
+                    diagnostic=False,
+                )
+
+            self.assertFalse(sample_entries)
+            self.assertEqual(len(flat_entries), 2)
+
+            resolved_paths = [entry[1] for entry in flat_entries]
+            expected_paths = [os.path.join(print_dir, name) for name in fallback_names]
+
+            self.assertCountEqual(resolved_paths, expected_paths)
+            self.assertEqual(len(set(resolved_paths)), 2)
 
 
 if __name__ == "__main__":
