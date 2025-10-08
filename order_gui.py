@@ -81,6 +81,7 @@ CANCEL_FILE = "jsx_cancel.flag"
 
 SUMMARY_DIR = APP_DIR / "temp" / "summary"
 PAPER_SUMMARY_DIR = APP_DIR / "temp" / "paper types summary"
+SUMMARY_ARTIFACT_PATH = SUMMARY_DIR / "last_run.json"
 
 PRINT_FOLDER_NAME = "print"
 DIAGNOSTIC_PRINT_FOLDER_NAME = "--DO NOT USE - PRINT--"
@@ -107,6 +108,98 @@ def ensure_paper_summary_dir():
                 f.unlink()
         except Exception:
             pass
+
+
+def _normalize_summary_path(path: str) -> str:
+    if not path:
+        return ""
+    normalized = os.path.normpath(path)
+    normalized = os.path.normcase(normalized)
+    return normalized.replace("\\", "/")
+
+
+def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, Any]]:
+    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        traceback.print_exc()
+        return []
+
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list):
+        return []
+
+    result: list[Mapping[str, Any]] = []
+    for entry in pairs:
+        if isinstance(entry, Mapping):
+            result.append(entry)
+    return result
+
+
+def apply_summary_overrides(
+    info_list: Sequence[tuple[str, str, int, str, str, str, str, str]],
+    pair_indices: Sequence[int],
+    summary_entries: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, str, int, str, str, str, str, str]]:
+    if not info_list or not summary_entries:
+        return list(info_list)
+
+    pair_lookup: dict[int, str] = {}
+    art_lookup: dict[str, str] = {}
+
+    for entry in summary_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        flat_path = entry.get("flat") or entry.get("flat_path")
+        if not isinstance(flat_path, str) or not flat_path:
+            continue
+
+        pair_val = entry.get("pair") or entry.get("pair_index")
+        pair_num: int | None = None
+        if isinstance(pair_val, int):
+            pair_num = pair_val
+        elif isinstance(pair_val, str):
+            try:
+                pair_num = int(pair_val)
+            except ValueError:
+                pair_num = None
+        if pair_num:
+            pair_lookup[pair_num] = flat_path
+
+        art_path = entry.get("art_path") or entry.get("artPath")
+        if isinstance(art_path, str) and art_path:
+            norm = _normalize_summary_path(art_path)
+            if norm:
+                art_lookup[norm] = flat_path
+
+    if not pair_lookup and not art_lookup:
+        return list(info_list)
+
+    updated: list[tuple[str, str, int, str, str, str, str, str]] = []
+    for idx, info in enumerate(info_list):
+        if not isinstance(info, tuple) or len(info) < 8:
+            updated.append(info)
+            continue
+
+        override_path = None
+        if idx < len(pair_indices):
+            pair_num = pair_indices[idx] + 1
+            override_path = pair_lookup.get(pair_num)
+
+        if not override_path:
+            norm_art = _normalize_summary_path(info[7])
+            if norm_art:
+                override_path = art_lookup.get(norm_art)
+
+        if override_path:
+            info = (override_path,) + info[1:]
+        updated.append(info)
+
+    return updated
 
 
 def resolve_print_output_folder(
@@ -1584,6 +1677,7 @@ class App:
         self.review_flats_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
+        self.pending_flat_pairs: list[int] = []
         self.pending_flat_info: list[
             tuple[str, str, int, str, str, str, str, str]
         ] = []
@@ -3593,6 +3687,20 @@ class App:
             self.log_message(f"Queue error: {exc}")
             messagebox.showerror("Error", f"Queue login failed: {exc}")
 
+    def _apply_summary_overrides(self) -> None:
+        entries = load_flat_summary_artifact()
+        if not entries:
+            return
+
+        updated = apply_summary_overrides(
+            self.pending_flat_info,
+            self.pending_flat_pairs,
+            entries,
+        )
+        if updated != self.pending_flat_info:
+            self.pending_flat_info = updated
+            self.pending_flat_paths = [info[0] for info in updated if info]
+
     def run_illustrator(self):
         self.sample_copy_info.clear()
         items_src = self.items if self.items else self.batch_items
@@ -3702,16 +3810,19 @@ class App:
             if cut_src and idx not in skip_indices
         )
 
-        self.pending_flat_paths = [
-            flat_path
-            for idx, flat_path, _ in flat_entries
-            if flat_path and idx not in skip_indices
-        ]
-        self.pending_flat_info = [
-            info
-            for idx, _, info in flat_entries
-            if info[0] and idx not in skip_indices
-        ]
+        filtered_flat_entries: list[
+            tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
+        ] = []
+        for idx, flat_path, info in flat_entries:
+            if idx in skip_indices:
+                continue
+            if not flat_path or not info or not info[0]:
+                continue
+            filtered_flat_entries.append((idx, flat_path, info))
+
+        self.pending_flat_pairs = [idx for idx, _, _ in filtered_flat_entries]
+        self.pending_flat_paths = [flat_path for _, flat_path, _ in filtered_flat_entries]
+        self.pending_flat_info = [info for _, _, info in filtered_flat_entries]
 
         if skip_indices:
             items = [item for idx, item in enumerate(items) if idx not in skip_indices]
@@ -3764,7 +3875,11 @@ class App:
                 self.root.after(0, lambda: self.total_time_var.set(f"Total time: {int(total)}s"))
                 self.run_start_time = None
                 if self.review_flats_var.get():
-                    self.root.after(0, lambda: self.review.start_flat_review(self.pending_flat_info))
+                    def _start_review():
+                        self._apply_summary_overrides()
+                        self.review.start_flat_review(self.pending_flat_info)
+
+                    self.root.after(0, _start_review)
 
         threading.Thread(target=worker, daemon=True).start()
 
