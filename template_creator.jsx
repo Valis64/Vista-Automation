@@ -1164,14 +1164,21 @@ function createClippingGroup(doc, bleedGroup) {
         }
     }
 
-    for (var s = 0; s < doc.pageItems.length; s++) {
-        doc.pageItems[s].selected = true;
+    var topLevelItems = [];
+    for (var li = 0; li < doc.layers.length; li++) {
+        var layer = doc.layers[li];
+        var layerItems = layer.pageItems;
+        for (var pi = 0; pi < layerItems.length; pi++) {
+            var item = layerItems[pi];
+            if (item.parent === layer) {
+                topLevelItems.push(item);
+            }
+        }
     }
 
     var grp = doc.groupItems.add();
-    var sel = doc.selection;
-    for (var i = sel.length - 1; i >= 0; i--) {
-        sel[i].move(grp, ElementPlacement.PLACEATEND);
+    for (var i = topLevelItems.length - 1; i >= 0; i--) {
+        topLevelItems[i].move(grp, ElementPlacement.PLACEATEND);
     }
 
     mask.move(grp, ElementPlacement.PLACEATBEGINNING);
