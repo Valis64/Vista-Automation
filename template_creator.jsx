@@ -947,17 +947,7 @@ function findBleedPath(doc, colorFn, createLayer) {
         bleedGroup = doc.groupItems.add();
     }
 
-    // First try: explicitly named bleed paths
-    for (var n = 0; n < doc.pathItems.length; n++) {
-        var item = doc.pathItems[n];
-        if (item.hidden || item.locked) continue;
-        if (item.stroked && hasBleedName(item)) {
-            item.move(bleedGroup, ElementPlacement.PLACEATEND);
-        }
-    }
-    if (bleedGroup.pageItems.length > 0) return bleedGroup;
-
-    // Second try: look for the Bleed spot color directly
+    // First try: look for the Bleed spot color directly
     var bleedSpot = findBleedSpot(doc);
     if (bleedSpot) {
         for (var s = 0; s < doc.pathItems.length; s++) {
