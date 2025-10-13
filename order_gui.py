@@ -9,7 +9,7 @@ import sys
 import traceback
 import zipfile
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence, Tuple
 from urllib.parse import urljoin
 
 import tkinter as tk
@@ -81,6 +81,7 @@ CANCEL_FILE = "jsx_cancel.flag"
 
 SUMMARY_DIR = APP_DIR / "temp" / "summary"
 PAPER_SUMMARY_DIR = APP_DIR / "temp" / "paper types summary"
+SUMMARY_ARTIFACT_PATH = SUMMARY_DIR / "last_run.json"
 
 PRINT_FOLDER_NAME = "print"
 DIAGNOSTIC_PRINT_FOLDER_NAME = "--DO NOT USE - PRINT--"
@@ -107,6 +108,98 @@ def ensure_paper_summary_dir():
                 f.unlink()
         except Exception:
             pass
+
+
+def _normalize_summary_path(path: str) -> str:
+    if not path:
+        return ""
+    normalized = os.path.normpath(path)
+    normalized = os.path.normcase(normalized)
+    return normalized.replace("\\", "/")
+
+
+def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, Any]]:
+    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return []
+    except Exception:
+        traceback.print_exc()
+        return []
+
+    pairs = data.get("pairs")
+    if not isinstance(pairs, list):
+        return []
+
+    result: list[Mapping[str, Any]] = []
+    for entry in pairs:
+        if isinstance(entry, Mapping):
+            result.append(entry)
+    return result
+
+
+def apply_summary_overrides(
+    info_list: Sequence[tuple[str, str, int, str, str, str, str, str]],
+    pair_indices: Sequence[int],
+    summary_entries: Sequence[Mapping[str, Any]],
+) -> list[tuple[str, str, int, str, str, str, str, str]]:
+    if not info_list or not summary_entries:
+        return list(info_list)
+
+    pair_lookup: dict[int, str] = {}
+    art_lookup: dict[str, str] = {}
+
+    for entry in summary_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        flat_path = entry.get("flat") or entry.get("flat_path")
+        if not isinstance(flat_path, str) or not flat_path:
+            continue
+
+        pair_val = entry.get("pair") or entry.get("pair_index")
+        pair_num: int | None = None
+        if isinstance(pair_val, int):
+            pair_num = pair_val
+        elif isinstance(pair_val, str):
+            try:
+                pair_num = int(pair_val)
+            except ValueError:
+                pair_num = None
+        if pair_num:
+            pair_lookup[pair_num] = flat_path
+
+        art_path = entry.get("art_path") or entry.get("artPath")
+        if isinstance(art_path, str) and art_path:
+            norm = _normalize_summary_path(art_path)
+            if norm:
+                art_lookup[norm] = flat_path
+
+    if not pair_lookup and not art_lookup:
+        return list(info_list)
+
+    updated: list[tuple[str, str, int, str, str, str, str, str]] = []
+    for idx, info in enumerate(info_list):
+        if not isinstance(info, tuple) or len(info) < 8:
+            updated.append(info)
+            continue
+
+        override_path = None
+        if idx < len(pair_indices):
+            pair_num = pair_indices[idx] + 1
+            override_path = pair_lookup.get(pair_num)
+
+        if not override_path:
+            norm_art = _normalize_summary_path(info[7])
+            if norm_art:
+                override_path = art_lookup.get(norm_art)
+
+        if override_path:
+            info = (override_path,) + info[1:]
+        updated.append(info)
+
+    return updated
 
 
 def resolve_print_output_folder(
@@ -161,6 +254,7 @@ def _guess_flat_filename(
     candidate: Mapping[str, Any],
     sequence: int,
     fallback_base: str,
+    exclude: Iterable[str] | None = None,
 ) -> str:
     """Return an existing ``*_flat_`` filename when metadata is incomplete."""
 
@@ -172,6 +266,8 @@ def _guess_flat_filename(
         entries = os.listdir(print_folder)
     except OSError:
         return ""
+
+    excluded = set(exclude or [])
 
     order_id = str(candidate.get("order_id") or "").strip().lower()
     art_id = str(candidate.get("art_id") or "").strip().lower()
@@ -202,6 +298,8 @@ def _guess_flat_filename(
     best_name = ""
     best_score = -1
     for name in entries:
+        if excluded and name in excluded:
+            continue
         lower = name.lower()
         if not lower.endswith(suffix):
             continue
@@ -236,6 +334,7 @@ def prepare_flat_review_entries(
     ] = []
     sample_entries: list[tuple[int, str, str]] = []
     order_counts: dict[str, int] = {}
+    used_flat_paths: set[str] = set()
 
     for candidate in candidates:
         idx = candidate.get("idx")
@@ -280,9 +379,11 @@ def prepare_flat_review_entries(
                 candidate,
                 sequence,
                 filename_base,
+                exclude=used_flat_paths,
             )
             if resolved_name:
                 flat_path = os.path.join(print_folder, resolved_name)
+                used_flat_paths.add(resolved_name)
         seq_for_info = order_counts.get(order_id, sequence if sequence else 0)
 
         info = (
@@ -1576,6 +1677,7 @@ class App:
         self.review_flats_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
+        self.pending_flat_pairs: list[int] = []
         self.pending_flat_info: list[
             tuple[str, str, int, str, str, str, str, str]
         ] = []
@@ -2972,7 +3074,6 @@ class App:
 
     def save_json(self):
         items_src = self.batch_items if self.batch_items else self.items
-        pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
@@ -2980,19 +3081,17 @@ class App:
         cur = items_src[self.index]
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
-        items = self.get_selected_items()
+        items, selected_pairs, _ = self.get_selected_items()
         raw_pairs: list[dict] = []
         pair_contexts: list[dict] = []
         for idx, it in enumerate(items):
-            art_id = ""
-            template = ""
-            if pairs_src and idx < len(pairs_src):
-                art_id = pairs_src[idx].get("art_id", "")
-                template = pairs_src[idx].get("template", "")
+            pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
+            art_id = pair.get("art_id", "")
+            template = pair.get("template", "")
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
-            order_id = it.get("order_id", self.order_id_var.get())
+            order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             temp_path = find_template_file(temp_root, template)
             paper = extract_paper_type(temp_path)
@@ -3076,15 +3175,35 @@ class App:
             traceback.print_exc()
             messagebox.showerror("Error", str(exc))
 
-    def get_selected_items(self) -> list[dict]:
+    def get_selected_items(self) -> Tuple[list[dict], list[dict], list[int]]:
         items_src = self.items if self.items else self.batch_items
+        pairs_src = self.pairs if self.pairs else self.batch_pairs
+        if not items_src:
+            return [], [], []
+
+        def _pair_for_index(index: int) -> dict:
+            if pairs_src and index < len(pairs_src):
+                return pairs_src[index]
+            return {}
+
         if not self.pair_vars:
-            return items_src
-        selected = []
-        for item, var in zip(items_src, self.pair_vars):
-            if var.get():
-                selected.append(item)
-        return selected
+            indices = list(range(len(items_src)))
+            pairs = [_pair_for_index(i) for i in indices]
+            return list(items_src), pairs, indices
+
+        selected_items: list[dict] = []
+        selected_pairs: list[dict] = []
+        selected_indices: list[int] = []
+        for idx, item in enumerate(items_src):
+            include = True
+            if idx < len(self.pair_vars):
+                include = bool(self.pair_vars[idx].get())
+            if include:
+                selected_items.append(item)
+                selected_pairs.append(_pair_for_index(idx))
+                selected_indices.append(idx)
+
+        return selected_items, selected_pairs, selected_indices
 
     def get_illustrator_path(self) -> str:
         path = self.ill_path_var.get()
@@ -3568,14 +3687,27 @@ class App:
             self.log_message(f"Queue error: {exc}")
             messagebox.showerror("Error", f"Queue login failed: {exc}")
 
+    def _apply_summary_overrides(self) -> None:
+        entries = load_flat_summary_artifact()
+        if not entries:
+            return
+
+        updated = apply_summary_overrides(
+            self.pending_flat_info,
+            self.pending_flat_pairs,
+            entries,
+        )
+        if updated != self.pending_flat_info:
+            self.pending_flat_info = updated
+            self.pending_flat_paths = [info[0] for info in updated if info]
+
     def run_illustrator(self):
         self.sample_copy_info.clear()
         items_src = self.items if self.items else self.batch_items
-        pairs_src = self.pairs if self.items else self.batch_pairs
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
-        items = self.get_selected_items()
+        items, selected_pairs, _ = self.get_selected_items()
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
@@ -3589,14 +3721,10 @@ class App:
         pair_contexts: list[dict] = []
         flat_candidates: list[dict] = []
         for idx, it in enumerate(items):
-            art_id = ""
-            template = ""
-            if pairs_src and idx < len(pairs_src):
-                art_id = pairs_src[idx].get("art_id", "")
-                template = pairs_src[idx].get("template", "")
-                order_id = pairs_src[idx].get("order_id", it.get("order_id", self.order_id_var.get()))
-            else:
-                order_id = it.get("order_id", self.order_id_var.get())
+            pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
+            art_id = pair.get("art_id", "")
+            template = pair.get("template", "")
+            order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
@@ -3682,16 +3810,19 @@ class App:
             if cut_src and idx not in skip_indices
         )
 
-        self.pending_flat_paths = [
-            flat_path
-            for idx, flat_path, _ in flat_entries
-            if flat_path and idx not in skip_indices
-        ]
-        self.pending_flat_info = [
-            info
-            for idx, _, info in flat_entries
-            if info[0] and idx not in skip_indices
-        ]
+        filtered_flat_entries: list[
+            tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
+        ] = []
+        for idx, flat_path, info in flat_entries:
+            if idx in skip_indices:
+                continue
+            if not flat_path or not info or not info[0]:
+                continue
+            filtered_flat_entries.append((idx, flat_path, info))
+
+        self.pending_flat_pairs = [idx for idx, _, _ in filtered_flat_entries]
+        self.pending_flat_paths = [flat_path for _, flat_path, _ in filtered_flat_entries]
+        self.pending_flat_info = [info for _, _, info in filtered_flat_entries]
 
         if skip_indices:
             items = [item for idx, item in enumerate(items) if idx not in skip_indices]
@@ -3744,7 +3875,11 @@ class App:
                 self.root.after(0, lambda: self.total_time_var.set(f"Total time: {int(total)}s"))
                 self.run_start_time = None
                 if self.review_flats_var.get():
-                    self.root.after(0, lambda: self.review.start_flat_review(self.pending_flat_info))
+                    def _start_review():
+                        self._apply_summary_overrides()
+                        self.review.start_flat_review(self.pending_flat_info)
+
+                    self.root.after(0, _start_review)
 
         threading.Thread(target=worker, daemon=True).start()
 

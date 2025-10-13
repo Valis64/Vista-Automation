@@ -52,6 +52,7 @@ var PRINT_FOLDER_NAME = 'print';
 var PROGRESS_FILE = 'jsx_progress.txt';
 var PAUSE_FILE = 'jsx_pause.flag';
 var CANCEL_FILE = 'jsx_cancel.flag';
+var SUMMARY_ARTIFACT = 'last_run.json';
 
 function checkStop() {
     try {
@@ -192,6 +193,66 @@ function parseJSON(text) {
         alertAndExit('Failed to parse order_data.json: ' + e2);
     }
     return null;
+}
+
+function jsonEscape(str) {
+    if (str === null || typeof str === 'undefined') return '';
+    var out = String(str);
+    out = out.replace(/\\/g, '\\\\');
+    out = out.replace(/"/g, '\\"');
+    out = out.replace(/\r/g, '\\r');
+    out = out.replace(/\n/g, '\\n');
+    return out;
+}
+
+function twoDigit(num) {
+    return (num < 10 ? '0' : '') + num;
+}
+
+function toISOStringSafe(date) {
+    if (!date) return '';
+    return (
+        date.getUTCFullYear() + '-' +
+        twoDigit(date.getUTCMonth() + 1) + '-' +
+        twoDigit(date.getUTCDate()) + 'T' +
+        twoDigit(date.getUTCHours()) + ':' +
+        twoDigit(date.getUTCMinutes()) + ':' +
+        twoDigit(date.getUTCSeconds()) + 'Z'
+    );
+}
+
+function writeSummaryArtifact(folder, items) {
+    if (!folder || !items || !items.length) return;
+    try {
+        var generated = toISOStringSafe(new Date());
+        var lines = [];
+        lines.push('{');
+        if (generated) {
+            lines.push('  "generated_at": "' + jsonEscape(generated) + '",');
+        }
+        lines.push('  "pairs": [');
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            lines.push('    {' +
+                '"pair": ' + it.pair + ',' +
+                ' "art": "' + jsonEscape(it.art) + '",' +
+                ' "art_path": "' + jsonEscape(it.artPath || '') + '",' +
+                ' "template": "' + jsonEscape(it.template) + '",' +
+                ' "template_path": "' + jsonEscape(it.templatePath || '') + '",' +
+                ' "filename": "' + jsonEscape(it.filename || '') + '",' +
+                ' "flat": "' + jsonEscape(it.flat) + '"' +
+            ' }' + (i === items.length - 1 ? '' : ','));
+        }
+        lines.push('  ]');
+        lines.push('}');
+
+        var file = new File(folder.fsName + '/' + SUMMARY_ARTIFACT);
+        file.encoding = 'UTF-8';
+        if (file.open('w')) {
+            file.write(lines.join('\n'));
+            file.close();
+        }
+    } catch (e) {}
 }
 
 function loadOrderData(jsonPath) {
@@ -797,16 +858,14 @@ function colorMatch(color, c, m, y, k, tol) {
 
 function isArtBleedColor(color, tol) {
     if (!color) return false;
-    if (color.typename === 'SpotColor' && color.spot &&
-        color.spot.name && color.spot.name.toLowerCase() === 'bleed') return true;
+    if (usesBleedSpot(color)) return true;
     tol = tol || 1;
     return colorMatch(color, 100, 0, 100, 0, tol) || colorMatch(color, 0, 100, 100, 0, tol);
 }
 
 function isTemplateBleedColor(color, tol) {
     if (!color) return false;
-    if (color.typename === 'SpotColor' && color.spot &&
-        color.spot.name && color.spot.name.toLowerCase() === 'bleed') return true;
+    if (usesBleedSpot(color)) return true;
     tol = tol || 1;
     return colorMatch(color, 100, 0, 100, 0, tol) || colorMatch(color, 0, 100, 100, 0, tol);
 }
@@ -836,6 +895,48 @@ function collectBleedPaths(doc, colorFn) {
     return paths;
 }
 
+function findBleedSpot(doc) {
+    if (!doc) return null;
+    var i;
+    if (doc.spots && doc.spots.length) {
+        for (i = 0; i < doc.spots.length; i++) {
+            var spot = doc.spots[i];
+            if (spot && spot.name && spot.name.toLowerCase() === 'bleed') {
+                return spot;
+            }
+        }
+    }
+    if (doc.swatches && doc.swatches.length) {
+        for (i = 0; i < doc.swatches.length; i++) {
+            var sw = doc.swatches[i];
+            if (!sw) continue;
+            var swName = (sw.name || '').toLowerCase();
+            if (swName === 'bleed' && sw.color && sw.color.typename === 'SpotColor' && sw.color.spot) {
+                return sw.color.spot;
+            }
+            if (sw.color && sw.color.typename === 'SpotColor' && sw.color.spot &&
+                sw.color.spot.name && sw.color.spot.name.toLowerCase() === 'bleed') {
+                return sw.color.spot;
+            }
+        }
+    }
+    return null;
+}
+
+function usesBleedSpot(color, spot) {
+    if (!color || color.typename !== 'SpotColor' || !color.spot) return false;
+    var colorSpot = color.spot;
+    var colorSpotName = (colorSpot.name || '').toLowerCase();
+    if (spot && colorSpot === spot) return true;
+    if (colorSpotName === 'bleed') return true;
+    if (spot && spot.name && colorSpotName === spot.name.toLowerCase()) return true;
+    if (colorSpot.color && colorSpot.color.typename === 'CMYKColor' &&
+        colorMatch(colorSpot.color, 0, 100, 100, 0, 0)) {
+        return true;
+    }
+    return false;
+}
+
 function findBleedPath(doc, colorFn, createLayer) {
     var bleedGroup;
     if (createLayer) {
@@ -844,6 +945,20 @@ function findBleedPath(doc, colorFn, createLayer) {
         bleedGroup = bleedLayer.groupItems.add();
     } else {
         bleedGroup = doc.groupItems.add();
+    }
+
+    // First try: look for the Bleed spot color directly
+    var bleedSpot = findBleedSpot(doc);
+    if (bleedSpot) {
+        for (var s = 0; s < doc.pathItems.length; s++) {
+            var spotPath = doc.pathItems[s];
+            if (spotPath.hidden || spotPath.locked) continue;
+            if (!spotPath.stroked) continue;
+            if (usesBleedSpot(spotPath.strokeColor, bleedSpot)) {
+                spotPath.move(bleedGroup, ElementPlacement.PLACEATEND);
+                return bleedGroup;
+            }
+        }
     }
 
     var tries = [1, 3, 5];
@@ -1039,14 +1154,21 @@ function createClippingGroup(doc, bleedGroup) {
         }
     }
 
-    for (var s = 0; s < doc.pageItems.length; s++) {
-        doc.pageItems[s].selected = true;
+    var topLevelItems = [];
+    for (var li = 0; li < doc.layers.length; li++) {
+        var layer = doc.layers[li];
+        var layerItems = layer.pageItems;
+        for (var pi = 0; pi < layerItems.length; pi++) {
+            var item = layerItems[pi];
+            if (item.parent === layer) {
+                topLevelItems.push(item);
+            }
+        }
     }
 
     var grp = doc.groupItems.add();
-    var sel = doc.selection;
-    for (var i = sel.length - 1; i >= 0; i--) {
-        sel[i].move(grp, ElementPlacement.PLACEATEND);
+    for (var i = topLevelItems.length - 1; i >= 0; i--) {
+        topLevelItems[i].move(grp, ElementPlacement.PLACEATEND);
     }
 
     mask.move(grp, ElementPlacement.PLACEATBEGINNING);
@@ -1162,6 +1284,11 @@ function main() {
         summary += '  Laminate: ' + it.laminate + '  Paper: ' + it.paper + '\n';
         summary += '  lines PDF: ' + it.lines + '\n';
         summary += '  flat PDF: ' + it.flat + '\n\n';
+    }
+
+    if (summaryFolder) {
+        writeProgress('Saving summary artifact');
+        writeSummaryArtifact(summaryFolder, summaryItems);
     }
 
     if (summaryFolder && SHOW_SUMMARY) {
@@ -1454,7 +1581,10 @@ function processPair(pair, index) {
         laminate: pair.laminate.name,
         paper: pair.paper,
         lines: baseName + '_lines_' + pair.paper + '.pdf',
-        flat: baseName + '_flat_' + pair.paper + '.pdf'
+        flat: baseName + '_flat_' + pair.paper + '.pdf',
+        artPath: pair.artFile ? pair.artFile.fsName : '',
+        templatePath: pair.templateFile ? pair.templateFile.fsName : '',
+        filename: orderData.filename || ''
     };
 }
 
