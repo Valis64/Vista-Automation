@@ -54,15 +54,26 @@ var PAUSE_FILE = 'jsx_pause.flag';
 var CANCEL_FILE = 'jsx_cancel.flag';
 var SUMMARY_ARTIFACT = 'last_run.json';
 
+var CANCEL_REQUESTED = false;
+
+function CancelError(message) {
+    this.name = 'CancelError';
+    this.message = message || 'Cancelled';
+}
+
+function isCancelError(err) {
+    return err && (err.name === 'CancelError' || err.cancel === true);
+}
+
 function checkStop() {
     try {
         var dir = File($.fileName).parent;
         var c = File(dir + '/' + CANCEL_FILE);
         if (c.exists) {
             c.remove();
-            writeProgress('Cancelled');
-            markDone();
-            $.exit();
+            CANCEL_REQUESTED = true;
+            writeProgress('Cancellation requested');
+            throw new CancelError();
         }
         var p = File(dir + '/' + PAUSE_FILE);
         while (p.exists) {
@@ -70,7 +81,9 @@ function checkStop() {
             $.sleep(500);
             p = File(dir + '/' + PAUSE_FILE);
         }
-    } catch (e) {}
+    } catch (e) {
+        if (isCancelError(e)) throw e;
+    }
 }
 
 function loadTemplateSettings(code) {
@@ -1250,27 +1263,37 @@ function main() {
         try { if (!summaryFolder.exists) summaryFolder.create(); } catch(e) {}
     }
 
-    for (var p = 0; p < opts.pairs.length; p++) {
-        checkStop();
-        var pair = opts.pairs[p];
-        var summaryItem = null;
-        var err = null;
-        for (var attempt = 0; attempt < 3; attempt++) {
+    var cancelled = false;
+    try {
+        for (var p = 0; p < opts.pairs.length; p++) {
             checkStop();
-            try {
-                writeProgress('Processing pair ' + (p + 1) + ' of ' + opts.pairs.length);
-                waitStep();
-                summaryItem = processPair(pair, p);
-                break;
-            } catch(e) {
-                err = e;
-                writeProgress('Retry ' + (attempt + 1) + ' failed: ' + e);
+            var pair = opts.pairs[p];
+            var summaryItem = null;
+            var err = null;
+            for (var attempt = 0; attempt < 3; attempt++) {
+                checkStop();
+                try {
+                    writeProgress('Processing pair ' + (p + 1) + ' of ' + opts.pairs.length);
+                    waitStep();
+                    summaryItem = processPair(pair, p);
+                    break;
+                } catch(e) {
+                    if (isCancelError(e)) throw e;
+                    err = e;
+                    writeProgress('Retry ' + (attempt + 1) + ' failed: ' + e);
+                }
             }
+            if (!summaryItem) {
+                alertAndExit('Failed to process pair ' + (p + 1) + ': ' + err);
+            }
+            summaryItems.push(summaryItem);
         }
-        if (!summaryItem) {
-            alertAndExit('Failed to process pair ' + (p + 1) + ': ' + err);
+    } catch (e) {
+        if (isCancelError(e)) {
+            cancelled = true;
+        } else {
+            throw e;
         }
-        summaryItems.push(summaryItem);
     }
 
     var summary = 'Processed ' + summaryItems.length + ' pair';
@@ -1331,6 +1354,8 @@ function main() {
     }
 
     waitStep();
+
+    return cancelled;
 }
 
 function processPair(pair, index) {
@@ -1588,7 +1613,17 @@ function processPair(pair, index) {
     };
 }
 
-main();
+var MAIN_CANCELLED = false;
+
+try {
+    MAIN_CANCELLED = main();
+} catch (e) {
+    if (isCancelError(e)) {
+        MAIN_CANCELLED = true;
+    } else {
+        throw e;
+    }
+}
 
 function markDone(){
     try {
@@ -1602,5 +1637,12 @@ function markDone(){
     } catch(e) {}
 }
 
-writeProgress('Complete');
+if (MAIN_CANCELLED || CANCEL_REQUESTED) {
+    writeProgress('Cancelled');
+} else {
+    writeProgress('Complete');
+}
 markDone();
+if (MAIN_CANCELLED || CANCEL_REQUESTED) {
+    try { $.exit(); } catch (e) {}
+}
