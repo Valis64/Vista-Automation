@@ -1262,6 +1262,7 @@ def populate_pairs(
     foil_vars: list[tk.BooleanVar] | None = None,
     emboss_vars: list[tk.BooleanVar] | None = None,
     emboss_default: bool = False,
+    missing_art: set[int] | None = None,
 ):
     """Populate checklist rows showing order, art ID and production details.
 
@@ -1270,8 +1271,11 @@ def populate_pairs(
     the "Current Pair" display. ``foil_vars`` and ``emboss_vars`` optionally
     receive lists of boolean variables for the "Foil die" and "Emboss"
     checkboxes (default unchecked). ``emboss_default`` checks the emboss box for
-    coffee sleeves when ``True``.
+    coffee sleeves when ``True``. ``missing_art`` optionally highlights rows
+    whose zero-based indices are present in the provided set.
     """
+
+    missing = missing_art or set()
 
     for child in frame.winfo_children():
         child.destroy()
@@ -1315,7 +1319,13 @@ def populate_pairs(
         var = tk.BooleanVar(value=True)
         tk.Checkbutton(row, variable=var).grid(row=0, column=0, sticky="w")
         text = f"{oid}.{seq} - {company} - {art_id} -> {template} <- ({glue}) - "
-        tk.Label(row, text=text, anchor="w").grid(row=0, column=1, sticky="w")
+        display_text = text
+        row_index = idx_item - 1
+        label_kwargs: dict[str, Any] = {"anchor": "w"}
+        if row_index in missing:
+            display_text += " [MISSING ART]"
+            label_kwargs["foreground"] = "red"
+        tk.Label(row, text=display_text, **label_kwargs).grid(row=0, column=1, sticky="w")
         tk.Label(row, text=lam, foreground=lam_color).grid(row=0, column=2, sticky="w", padx=2)
         foil_var = tk.BooleanVar(value=False)
         tk.Checkbutton(row, text="Foil die", variable=foil_var).grid(row=0, column=3, sticky="w", padx=2)
@@ -2709,6 +2719,70 @@ class App:
         if missing:
             self.show_missing_cut_window(missing)
 
+    def compute_missing_art_indices(
+        self,
+        items: Sequence[Mapping[str, Any]] | None = None,
+        pairs: Sequence[Mapping[str, Any]] | None = None,
+    ) -> set[int]:
+        """Return checklist indices whose artwork files cannot be located."""
+
+        if items is None or pairs is None:
+            default_pairs, default_items = self._get_pairs_and_items()
+            if items is None:
+                items = default_items
+            if pairs is None:
+                pairs = default_pairs
+
+        item_list = list(items or [])
+        pair_list = list(pairs or [])
+        if not item_list and not pair_list:
+            return set()
+
+        art_default = str(self.art_dir_var.get() or "").strip()
+        month_default = str(self.month_dir_var.get() or "").strip()
+        order_default = str(self.order_id_var.get() or "").strip()
+
+        missing: set[int] = set()
+        total = max(len(item_list), len(pair_list))
+        for idx in range(total):
+            item = item_list[idx] if idx < len(item_list) else {}
+            pair = pair_list[idx] if idx < len(pair_list) else {}
+
+            art_path = str(
+                pair.get("art_path", "") or item.get("art_path", "") or ""
+            ).strip()
+            if art_path and os.path.isfile(art_path):
+                continue
+
+            art_root = str(item.get("art_dir") or art_default).strip()
+            month_root = str(item.get("month_dir") or month_default).strip()
+            order_val = pair.get("order_id") or item.get("order_id") or order_default
+            order_id = str(order_val).strip()
+            art_id = str(pair.get("art_id", "") or "").strip()
+
+            filename_source = (
+                item.get("filename")
+                or pair.get("filename")
+                or item.get("artName")
+                or pair.get("artName")
+                or ""
+            )
+            filename_hint = ""
+            if filename_source:
+                filename_hint = sanitize_filename_base(
+                    os.path.splitext(str(filename_source))[0]
+                )
+
+            try:
+                path = find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+            except Exception:
+                path = ""
+
+            if not path:
+                missing.add(idx)
+
+        return missing
+
     def check_missing_templates(self):
         """Check all loaded pairs for missing templates and display them."""
         temp_dir = self.template_dir_var.get()
@@ -2960,6 +3034,7 @@ class App:
                 messagebox.showerror("Error", "No order data found")
                 return
             self.index = 0
+            missing_art = self.compute_missing_art_indices(self.items, self.pairs)
             count = populate_pairs(
                 self.pair_frame,
                 self.pair_vars,
@@ -2968,6 +3043,7 @@ class App:
                 self.foil_vars,
                 self.emboss_vars,
                 self.emboss_detected,
+                missing_art=missing_art,
             )
             self.update_checklist_count(count)
             self.update_fields()
@@ -3013,6 +3089,7 @@ class App:
                 messagebox.showerror("Error", "No order data found")
                 return
             self.index = 0
+            missing_art = self.compute_missing_art_indices(self.items, self.pairs)
             count = populate_pairs(
                 self.pair_frame,
                 self.pair_vars,
@@ -3021,6 +3098,7 @@ class App:
                 self.foil_vars,
                 self.emboss_vars,
                 self.emboss_detected,
+                missing_art=missing_art,
             )
             self.update_checklist_count(count)
             self.update_fields()
@@ -3301,6 +3379,38 @@ class App:
             extracted_zips += zips
         self._show_art_move_summary(moved_files, extracted_zips)
 
+        items_src = self.batch_items if self.batch_items else self.items
+        pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
+        if items_src or pairs_src:
+            pair_states = [var.get() for var in self.pair_vars]
+            foil_states = [var.get() for var in self.foil_vars] if self.foil_vars else []
+            emboss_states = [var.get() for var in self.emboss_vars] if self.emboss_vars else []
+
+            missing_art = self.compute_missing_art_indices(items_src, pairs_src)
+            count = populate_pairs(
+                self.pair_frame,
+                self.pair_vars,
+                items_src,
+                pairs_src,
+                self.foil_vars,
+                self.emboss_vars,
+                self.emboss_detected,
+                missing_art=missing_art,
+            )
+            self.update_checklist_count(count)
+
+            for idx, value in enumerate(pair_states):
+                if idx < len(self.pair_vars):
+                    self.pair_vars[idx].set(value)
+            if self.foil_vars:
+                for idx, value in enumerate(foil_states):
+                    if idx < len(self.foil_vars):
+                        self.foil_vars[idx].set(value)
+            if self.emboss_vars:
+                for idx, value in enumerate(emboss_states):
+                    if idx < len(self.emboss_vars):
+                        self.emboss_vars[idx].set(value)
+
     def _show_art_move_summary(self, art_files: int, zip_count: int):
         lines, warning = format_art_move_summary(art_files, zip_count)
         win = tk.Toplevel(self.root)
@@ -3431,6 +3541,7 @@ class App:
                 pair["created_by"] = sales_rep
             self.batch_pairs.append(pair)
         self.update_batch_display()
+        missing_art = self.compute_missing_art_indices(self.batch_items, self.batch_pairs)
         count = populate_pairs(
             self.pair_frame,
             self.pair_vars,
@@ -3439,6 +3550,7 @@ class App:
             self.foil_vars,
             self.emboss_vars,
             self.emboss_detected,
+            missing_art=missing_art,
         )
         self.update_checklist_count(count)
         self.items = []
@@ -3459,6 +3571,7 @@ class App:
         self.batch_items.clear()
         self.batch_pairs.clear()
         self.update_batch_display()
+        missing_art = self.compute_missing_art_indices(self.items, self.pairs)
         count = populate_pairs(
             self.pair_frame,
             self.pair_vars,
@@ -3467,6 +3580,7 @@ class App:
             self.foil_vars,
             self.emboss_vars,
             self.emboss_detected,
+            missing_art=missing_art,
         )
         self.update_checklist_count(count)
         self.update_fields()
