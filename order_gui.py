@@ -3876,6 +3876,36 @@ class App:
                 self.run_start_time = None
                 if self.review_flats_var.get():
                     def _start_review():
+                        completed_pairs = set(getattr(loader, "completed_pairs", set()) or ())
+
+                        filtered_info: list[tuple[str, str, int, str, str, str, str, str]] = []
+                        filtered_pairs: list[int] = []
+                        filtered_paths: list[str] = []
+
+                        info_len = len(self.pending_flat_info)
+                        path_len = len(self.pending_flat_paths)
+
+                        for idx, pair_idx in enumerate(self.pending_flat_pairs):
+                            if pair_idx not in completed_pairs:
+                                continue
+                            if idx < info_len:
+                                filtered_info.append(self.pending_flat_info[idx])
+                            if idx < path_len:
+                                filtered_paths.append(self.pending_flat_paths[idx])
+                            filtered_pairs.append(pair_idx)
+
+                        if not filtered_info:
+                            messagebox.showinfo(
+                                "Flat Review",
+                                "No completed flats are available for review.",
+                                parent=self.root,
+                            )
+                            return
+
+                        self.pending_flat_info = filtered_info
+                        self.pending_flat_pairs = filtered_pairs
+                        self.pending_flat_paths = filtered_paths
+
                         self._apply_summary_overrides()
                         self.review.start_flat_review(self.pending_flat_info)
 
