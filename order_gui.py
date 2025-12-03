@@ -820,7 +820,7 @@ def resolve_paired_page_art(
     pair_map: dict[str, dict[str, int | None]] = {}
     for idx in range(limit):
         template = str(entries[idx].get("template", "") or "").strip().upper()
-        if not template.startswith("P") or template.startswith("PB"):
+        if not template.startswith("PO") or template.startswith("POB"):
             continue
         is_mate = template.endswith("B") and len(template) > 1
         base_code = template[:-1] if is_mate else template
@@ -842,7 +842,7 @@ def resolve_paired_page_art(
         )
         if mate_idx is None:
             logger(
-                f"Warning: P pair {base_code} missing mate template; expected {base_code}B."
+                f"Warning: PO pair {base_code} missing mate template; expected {base_code}B."
             )
         indices = [i for i in (base_idx, mate_idx) if i is not None]
         if not indices:
@@ -858,7 +858,7 @@ def resolve_paired_page_art(
         mate_label = mate_template or "missing"
         if folder:
             logger(
-                f"Resolved zip folder for P pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
+                f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
             )
             page1 = find_page(folder, 1)
             page2 = find_page(folder, 2)
@@ -880,7 +880,7 @@ def resolve_paired_page_art(
                     skips.add(mate_idx)
         else:
             logger(
-                f"Error: could not locate extracted folder for P pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
+                f"Error: could not locate extracted folder for PO pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
             )
             for idx in indices:
                 if idx is not None:
