@@ -146,7 +146,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "90001"
             art_id = "ART900"
-            template = "P15"
+            template = "PO15"
             art_folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(art_folder, exist_ok=True)
             page1 = os.path.join(art_folder, "page1.pdf")
@@ -240,6 +240,16 @@ class ResolvePairedPageArtTests(unittest.TestCase):
 
             self.assertFalse(assignments)
             self.assertFalse(skips)
+
+    def test_non_po_templates_are_ignored_by_pairing(self):
+        entries = [{"template": "P15", "art_path": ""}]
+        contexts = [self._build_context("ARTNONPO", "10002", "/tmp")]
+        logs: list[str] = []
+
+        assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+
+        self.assertFalse(assignments)
+        self.assertFalse(skips)
 
     def test_flat_entries_resolve_existing_flat_filename_for_p_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
