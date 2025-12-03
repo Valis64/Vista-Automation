@@ -800,7 +800,8 @@ def resolve_paired_page_art(
             if idx >= limit:
                 continue
             ctx = contexts[idx]
-            art_path = ctx.get("art_path") or ""
+            entry = entries[idx] if idx < len(entries) else {}
+            art_path = ctx.get("art_path") or entry.get("art_path") or ""
             art_id = str(ctx.get("art_id") or "")
             art_id_l = art_id.lower()
             if art_path:
@@ -860,7 +861,11 @@ def resolve_paired_page_art(
             logger(
                 f"Warning: PO pair {base_code} missing mate template; expected {base_code}B."
             )
-        indices = [i for i in (base_idx, mate_idx) if i is not None]
+        indices: list[int] = []
+        if mate_idx is not None:
+            indices.append(mate_idx)
+        if base_idx is not None:
+            indices.append(base_idx)
         if not indices:
             continue
         art_id = ""
@@ -870,46 +875,19 @@ def resolve_paired_page_art(
             art_id = str(contexts[idx].get("art_id") or art_id)
             if art_id:
                 break
-        mate_has_art = False
-        mate_folder = ""
-        if mate_idx is not None and mate_idx < limit:
-            mate_entry = entries[mate_idx] if mate_idx < len(entries) else {}
-            mate_ctx = contexts[mate_idx]
-            mate_path = mate_ctx.get("art_path") or mate_entry.get("art_path") or ""
-            if mate_path:
-                mate_has_art = os.path.isfile(mate_path) or (
-                    os.path.isdir(mate_path) and has_page(mate_path)
-                )
-            if not mate_has_art:
-                mate_folder = locate_folder(base_code, [mate_idx])
-                mate_has_art = bool(mate_folder)
-        if not mate_has_art and mate_idx is not None:
-            base_art_path = resolve_standard_art(base_idx)
-            if base_idx is not None and base_art_path:
-                assignments[base_idx] = base_art_path
-                logger(
-                    f"Using base art for PO pair {base_code} because mate {mate_label} lacks extracted pages or usable art."
-                )
-            else:
-                logger(
-                    f"Warning: mate {mate_label} for PO pair {base_code} has no art; unable to assign base art automatically."
-                )
-            continue
-        folder = mate_folder or locate_folder(base_code, indices)
+        folder = locate_folder(base_code, indices)
+        page1 = page2 = ""
         if folder:
             logger(
                 f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
             )
             page1 = find_page(folder, 1)
             page2 = find_page(folder, 2)
+
+        fallback_art = resolve_standard_art(base_idx)
+        if folder and page1:
             if base_idx is not None and base_idx < len(entries):
-                if page1:
-                    assignments[base_idx] = page1
-                else:
-                    logger(
-                        f"Warning: page1.pdf not found for {base_code} in {folder}; skipping template {entries[base_idx].get('template', base_code)}."
-                    )
-                    skips.add(base_idx)
+                assignments[base_idx] = page1
             if mate_idx is not None and mate_idx < len(entries):
                 if page2:
                     assignments[mate_idx] = page2
@@ -918,6 +896,17 @@ def resolve_paired_page_art(
                         f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
                     )
                     skips.add(mate_idx)
+        elif fallback_art and base_idx is not None and base_idx < len(entries):
+            if folder and not page1:
+                logger(
+                    f"Warning: page1.pdf not found for {base_code} in {folder}; using standard art instead."
+                )
+            assignments[base_idx] = fallback_art
+            logger(
+                f"Using standard art for PO pair {base_code} because extracted pages are unavailable for mate {mate_label}."
+            )
+            if mate_idx is not None:
+                skips.add(mate_idx)
         else:
             logger(
                 f"Error: could not locate extracted folder for PO pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
