@@ -128,6 +128,33 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
 
+    def test_missing_pob_art_uses_base_art_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "65000"
+            art_id = "BASE001"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            with open(base_art, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO20", "art_path": base_art},
+                {"template": "PO20B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, base_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertNotIn(1, assignments)
+            self.assertFalse(skips)
+            self.assertTrue(
+                any("lacks extracted pages or usable art" in msg for msg in logs)
+            )
+
     def test_find_template_prefers_exact_template_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             po1_path = os.path.join(tmp, "PO1_print 10in -vp.ai")
