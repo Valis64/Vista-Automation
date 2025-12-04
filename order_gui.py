@@ -234,7 +234,20 @@ def resolve_print_output_folder(
     if not is_p_template and name:
         is_p_template = _is_p_series(Path(name).name)
 
-    target_index = 2 if is_p_template else 1
+    def _is_po(identifier: str) -> bool:
+        cleaned = (identifier or "").strip().upper()
+        return cleaned.startswith("PO") if cleaned else False
+
+    is_po_template = _is_po(code)
+    if not is_po_template and name:
+        is_po_template = _is_po(Path(name).name)
+
+    is_art_subfolder = path.parent.name.lower() == "art"
+
+    if is_p_template and is_po_template and is_art_subfolder:
+        target_index = 1
+    else:
+        target_index = 2 if is_p_template else 1
 
     try:
         root = parents[target_index]
