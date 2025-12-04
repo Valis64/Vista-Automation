@@ -80,7 +80,8 @@ class SelectionHelperTest(unittest.TestCase):
             ), mock.patch("order_gui.detect_laminate", return_value=""), mock.patch(
                 "order_gui.is_coffee_sleeve", return_value=False
             ), mock.patch(
-                "order_gui.resolve_paired_page_art", return_value=({}, set())
+                "order_gui.resolve_paired_page_art",
+                return_value=({}, {0}, {0: "No PO art found"}),
             ), mock.patch(
                 "order_gui.save_order_data"
             ) as save_mock:
@@ -89,8 +90,11 @@ class SelectionHelperTest(unittest.TestCase):
         args, _ = save_mock.call_args
         saved = args[0]
         self.assertEqual(len(saved["items"]), 2)
-        self.assertEqual([p["art_id"] for p in saved["pairs"]], ["a1", "a3"])
-        self.assertEqual([p["template"] for p in saved["pairs"]], ["t1", "t3"])
+        self.assertEqual(saved["items"][0].get("skip_reason"), "No PO art found")
+        self.assertTrue(saved["pairs"][0].get("skip"))
+        self.assertEqual(saved["pairs"][0].get("skip_reason"), "No PO art found")
+        self.assertEqual([p.get("art_id") for p in saved["pairs"]], ["a1", "a3"])
+        self.assertEqual([p.get("template") for p in saved["pairs"]], ["t1", "t3"])
 
 
 if __name__ == "__main__":

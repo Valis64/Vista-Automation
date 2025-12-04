@@ -46,11 +46,14 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
             self.assertTrue(any("Resolved zip folder" in msg for msg in logs))
 
     def test_missing_page_skips_side(self):
@@ -73,10 +76,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
             self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
 
     def test_missing_mate_logs_warning(self):
@@ -93,10 +99,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             contexts = [self._build_context(art_id, order_id, tmp)]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
             self.assertTrue(any("missing mate template" in msg for msg in logs))
 
     def test_case_insensitive_page_names(self):
@@ -122,11 +131,14 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
 
     def test_missing_pob_art_uses_base_art_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -146,13 +158,16 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), base_art)
             self.assertNotIn(1, assignments)
-            self.assertFalse(skips)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing extracted PO art")
             self.assertTrue(
-                any("lacks extracted pages or usable art" in msg for msg in logs)
+                any("Using standard art for PO pair" in msg for msg in logs)
             )
 
     def test_find_template_prefers_exact_template_code(self):
@@ -195,10 +210,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertIn(0, assignments)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
 
             filename_base = sanitize_filename_base("Sample File")
             candidates = [
@@ -263,20 +281,26 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertFalse(assignments)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
 
     def test_non_po_templates_are_ignored_by_pairing(self):
         entries = [{"template": "P15", "art_path": ""}]
         contexts = [self._build_context("ARTNONPO", "10002", "/tmp")]
         logs: list[str] = []
 
-        assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+        assignments, skips, skip_reasons = resolve_paired_page_art(
+            entries, contexts, logs.append
+        )
 
         self.assertFalse(assignments)
         self.assertFalse(skips)
+        self.assertFalse(skip_reasons)
 
     def test_flat_entries_resolve_existing_flat_filename_for_p_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -289,7 +313,12 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             with open(art_path, "w", encoding="utf-8"):
                 pass
 
-            print_dir = os.path.join(tmp, "print")
+            print_dir = resolve_print_output_folder(
+                art_path,
+                template,
+                "",
+                diagnostic=False,
+            )
             os.makedirs(print_dir, exist_ok=True)
             actual_name = (
                 "36349 - McKenzie Crest Inc. - Justin - "
