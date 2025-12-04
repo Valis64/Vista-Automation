@@ -747,18 +747,25 @@ def resolve_paired_page_art(
     entries: Sequence[dict],
     contexts: Sequence[dict],
     logger: Callable[[str], None],
-) -> tuple[dict[int, str], set[int]]:
+) -> tuple[dict[int, str], set[int], dict[int, str]]:
     """Assign PAGE1/PAGE2 files from extracted ZIP folders to P templates."""
 
     assignments: dict[int, str] = {}
     skips: set[int] = set()
+    skip_reasons: dict[int, str] = {}
+
+    def mark_skip(idx: int | None, reason: str) -> None:
+        if idx is None:
+            return
+        skips.add(idx)
+        skip_reasons.setdefault(idx, reason)
 
     if logger is None:
         logger = lambda _: None  # type: ignore[assignment]
 
     limit = min(len(entries), len(contexts))
     if limit == 0:
-        return assignments, skips
+        return assignments, skips, skip_reasons
 
     def collect_search_dirs(ctx: dict) -> list[str]:
         dirs: list[str] = []
@@ -923,7 +930,7 @@ def resolve_paired_page_art(
                     logger(
                         f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
                     )
-                    skips.add(mate_idx)
+                    mark_skip(mate_idx, "Missing page2.pdf")
         elif fallback_art and base_idx is not None and base_idx < len(entries):
             if folder and not page1:
                 logger(
@@ -934,16 +941,15 @@ def resolve_paired_page_art(
                 f"Using standard art for PO pair {base_code} because extracted pages are unavailable for mate {mate_label}."
             )
             if mate_idx is not None:
-                skips.add(mate_idx)
+                mark_skip(mate_idx, "Missing extracted PO art")
         else:
             logger(
                 f"Error: could not locate extracted folder for PO pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
             )
             for idx in indices:
-                if idx is not None:
-                    skips.add(idx)
+                mark_skip(idx, "No PO art found")
 
-    return assignments, skips
+    return assignments, skips, skip_reasons
 
 
 def find_template_file(root: str, template: str, sample: bool = False) -> str:
@@ -1357,11 +1363,13 @@ def populate_pairs(
         art_id = ""
         template = ""
         skip = False
+        skip_reason = ""
         if pair_data and idx_item - 1 < len(pair_data):
             pair = pair_data[idx_item - 1]
             art_id = pair.get("art_id", "")
             template = pair.get("template", "")
             skip = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
         else:
             art_text = it.get("artName") or it.get("filename", "")
             art_id = extract_art_id(art_text)
@@ -1383,7 +1391,8 @@ def populate_pairs(
         row_index = idx_item - 1
         label_kwargs: dict[str, Any] = {"anchor": "w"}
         if skip:
-            display_text += " [NO PRINT BOX - SKIPPED]"
+            reason = skip_reason or "No print box"
+            display_text = f"SKIPPED: {reason} - {text}"
             label_kwargs["foreground"] = "gray"
         elif row_index in missing:
             display_text += " [MISSING ART]"
@@ -3264,21 +3273,23 @@ class App:
                 }
             )
 
-        assignments, skip_indices = resolve_paired_page_art(
+        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
             raw_pairs, pair_contexts, self.log_message
         )
 
+        skip_set = set(skip_indices)
         pairs_data: list[dict] = []
         for idx, entry in enumerate(raw_pairs):
-            if idx in skip_indices:
-                continue
+            updated = dict(entry)
             if idx in assignments:
-                entry = dict(entry)
-                entry["art_path"] = assignments[idx]
-            pairs_data.append(entry)
-
-        if skip_indices:
-            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
+                updated["art_path"] = assignments[idx]
+            if idx in skip_set:
+                updated["skip"] = True
+                updated["skip_reason"] = skip_reasons.get(idx, "")
+                if idx < len(items):
+                    items[idx]["skip"] = True
+                    items[idx]["skip_reason"] = skip_reasons.get(idx, "")
+            pairs_data.append(updated)
         save_order_data(
             {
                 "items": items,
@@ -3973,19 +3984,24 @@ class App:
                 }
             )
 
-        assignments, skip_indices = resolve_paired_page_art(
+        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
             raw_pairs, pair_contexts, self.log_message
         )
 
+        skip_set = set(skip_indices)
         pairs_data: list[dict] = []
         pair_orders: list[str] = []
         for idx, entry in enumerate(raw_pairs):
-            if idx in skip_indices:
-                continue
+            updated = dict(entry)
             if idx in assignments:
-                entry = dict(entry)
-                entry["art_path"] = assignments[idx]
-            pairs_data.append(entry)
+                updated["art_path"] = assignments[idx]
+            if idx in skip_set:
+                updated["skip"] = True
+                updated["skip_reason"] = skip_reasons.get(idx, "")
+                if idx < len(items):
+                    items[idx]["skip"] = True
+                    items[idx]["skip_reason"] = skip_reasons.get(idx, "")
+            pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
         flat_entries, sample_entries = prepare_flat_review_entries(
@@ -3998,14 +4014,14 @@ class App:
         self.sample_copy_info.extend(
             (cut_src, dest)
             for idx, cut_src, dest in sample_entries
-            if cut_src and idx not in skip_indices
+            if cut_src and idx not in skip_set
         )
 
         filtered_flat_entries: list[
             tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
         ] = []
         for idx, flat_path, info in flat_entries:
-            if idx in skip_indices:
+            if idx in skip_set:
                 continue
             if not flat_path or not info or not info[0]:
                 continue
@@ -4014,9 +4030,6 @@ class App:
         self.pending_flat_pairs = [idx for idx, _, _ in filtered_flat_entries]
         self.pending_flat_paths = [flat_path for _, flat_path, _ in filtered_flat_entries]
         self.pending_flat_info = [info for _, _, info in filtered_flat_entries]
-
-        if skip_indices:
-            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
 
         save_order_data(
             {
