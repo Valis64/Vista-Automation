@@ -502,8 +502,10 @@ def parse_order(html: str) -> dict:
 
     Returns a dictionary with keys:
     - ``items``: list of order item dictionaries as before
-    - ``pairs``: list of ``{"template": str, "art_id": str}`` extracted from
-      ``div.order-items`` blocks
+    - ``pairs``: list of ``{"template": str, "art_id": str, "skip": bool}``
+      extracted from ``div.order-items`` blocks. ``skip`` is present when a pair
+      is intentionally excluded from art processing (e.g., "No Print Box"
+      placeholders).
     - ``order_info``: dictionary with ``order_id``, ``created_by``,
       ``ordered_by`` and ``company`` if found in the HTML
     """
@@ -585,6 +587,13 @@ def parse_order(html: str) -> dict:
 
     soup = BeautifulSoup(html, "html.parser")
 
+    def _is_no_print_box(template: str, art_text: str) -> bool:
+        return bool(
+            template
+            and re.match(r"PO.*B", template, re.I)
+            and "no print box" in (art_text or "").lower()
+        )
+
     # Preferred simple structure
     for div in soup.select("div.order-items div.item"):
         t = div.find("span", class_="template")
@@ -593,6 +602,9 @@ def parse_order(html: str) -> dict:
             continue
         template = t.get_text(strip=True)
         art_full = a_full.get_text(strip=True)
+        if _is_no_print_box(template, art_full):
+            pairs.append({"template": template, "art_id": "", "skip": True})
+            continue
         art_id = extract_art_id(art_full)
         pairs.append({"template": template, "art_id": art_id})
 
@@ -607,6 +619,9 @@ def parse_order(html: str) -> dict:
                 continue
             template = cells[1].get_text(strip=True)
             art_full = cells[2].get_text(strip=True)
+            if _is_no_print_box(template, art_full):
+                pairs.append({"template": template, "art_id": "", "skip": True})
+                continue
             art_id = extract_art_id(art_full)
             if template or art_id:
                 pairs.append({"template": template, "art_id": art_id})
@@ -1328,10 +1343,12 @@ def populate_pairs(
         company = it.get("company", "")
         art_id = ""
         template = ""
+        skip = False
         if pair_data and idx_item - 1 < len(pair_data):
             pair = pair_data[idx_item - 1]
             art_id = pair.get("art_id", "")
             template = pair.get("template", "")
+            skip = bool(pair.get("skip"))
         else:
             art_text = it.get("artName") or it.get("filename", "")
             art_id = extract_art_id(art_text)
@@ -1345,13 +1362,17 @@ def populate_pairs(
         row = tk.Frame(frame)
         row.grid(row=idx_item, column=0, sticky="w")
 
-        var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row, variable=var).grid(row=0, column=0, sticky="w")
+        var = tk.BooleanVar(value=not skip)
+        chk_state = {"state": "disabled"} if skip else {}
+        tk.Checkbutton(row, variable=var, **chk_state).grid(row=0, column=0, sticky="w")
         text = f"{oid}.{seq} - {company} - {art_id} -> {template} <- ({glue}) - "
         display_text = text
         row_index = idx_item - 1
         label_kwargs: dict[str, Any] = {"anchor": "w"}
-        if row_index in missing:
+        if skip:
+            display_text += " [NO PRINT BOX - SKIPPED]"
+            label_kwargs["foreground"] = "gray"
+        elif row_index in missing:
             display_text += " [MISSING ART]"
             label_kwargs["foreground"] = "red"
         tk.Label(row, text=display_text, **label_kwargs).grid(row=0, column=1, sticky="w")
@@ -2777,6 +2798,9 @@ class App:
             item = item_list[idx] if idx < len(item_list) else {}
             pair = pair_list[idx] if idx < len(pair_list) else {}
 
+            if pair.get("skip"):
+                continue
+
             art_path = str(
                 pair.get("art_path", "") or item.get("art_path", "") or ""
             ).strip()
@@ -3294,9 +3318,17 @@ class App:
             return {}
 
         if not self.pair_vars:
-            indices = list(range(len(items_src)))
-            pairs = [_pair_for_index(i) for i in indices]
-            return list(items_src), pairs, indices
+            indices: list[int] = []
+            pairs: list[dict] = []
+            filtered_items: list[dict] = []
+            for i, item in enumerate(items_src):
+                pair = _pair_for_index(i)
+                if pair.get("skip"):
+                    continue
+                filtered_items.append(item)
+                pairs.append(pair)
+                indices.append(i)
+            return filtered_items, pairs, indices
 
         selected_items: list[dict] = []
         selected_pairs: list[dict] = []
@@ -3305,9 +3337,12 @@ class App:
             include = True
             if idx < len(self.pair_vars):
                 include = bool(self.pair_vars[idx].get())
+            pair = _pair_for_index(idx)
+            if pair.get("skip"):
+                include = False
             if include:
                 selected_items.append(item)
-                selected_pairs.append(_pair_for_index(idx))
+                selected_pairs.append(pair)
                 selected_indices.append(idx)
 
         return selected_items, selected_pairs, selected_indices
