@@ -50,6 +50,30 @@ class ParseOrderTest(unittest.TestCase):
         self.assertEqual(data["pairs"][0]["template"], "RTVista06G")
         self.assertEqual(data["pairs"][0]["art_id"], "MED544GD9G")
 
+    def test_no_print_box_placeholder(self):
+        html = '''
+        <div class="order-items">
+          <div class="item">
+            <span class="qty">1</span>
+            <span class="template">PO987B</span>
+            <span class="art-full">No Print Box</span>
+          </div>
+          <div class="item">
+            <span class="qty">1</span>
+            <span class="template">PO987A</span>
+            <span class="art-full">PO987A - ABCDE12345</span>
+          </div>
+        </div>
+        '''
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 2)
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0]["template"], "PO987B")
+        self.assertEqual(data["pairs"][0]["art_id"], "")
+        self.assertFalse(data["pairs"][1].get("skip"))
+        self.assertEqual(data["pairs"][1]["template"], "PO987A")
+        self.assertEqual(data["pairs"][1]["art_id"], "ABCDE12345")
+
     def test_order_info_extracted(self):
         html = """
         <div id="details">
