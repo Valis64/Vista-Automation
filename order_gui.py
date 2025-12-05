@@ -3237,6 +3237,9 @@ class App:
         items, selected_pairs, _ = self.get_selected_items()
         raw_pairs: list[dict] = []
         pair_contexts: list[dict] = []
+        initial_skip_indices: set[int] = set()
+        initial_skip_reasons: dict[int, str] = {}
+
         for idx, it in enumerate(items):
             pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
             art_id = pair.get("art_id", "")
@@ -3252,6 +3255,12 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            skip_flag = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
+            if skip_flag:
+                initial_skip_indices.add(idx)
+                if skip_reason:
+                    initial_skip_reasons[idx] = skip_reason
             raw_pairs.append(
                 {
                     "art_id": art_id,
@@ -3260,6 +3269,8 @@ class App:
                     "template_path": temp_path,
                     "paperType": paper,
                     "lamType": lam,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
             pair_contexts.append(
@@ -3270,6 +3281,8 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
 
@@ -3277,7 +3290,8 @@ class App:
             raw_pairs, pair_contexts, self.log_message
         )
 
-        skip_set = set(skip_indices)
+        skip_set = set(skip_indices) | initial_skip_indices
+        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
         pairs_data: list[dict] = []
         for idx, entry in enumerate(raw_pairs):
             updated = dict(entry)
@@ -3285,10 +3299,10 @@ class App:
                 updated["art_path"] = assignments[idx]
             if idx in skip_set:
                 updated["skip"] = True
-                updated["skip_reason"] = skip_reasons.get(idx, "")
+                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
                 if idx < len(items):
                     items[idx]["skip"] = True
-                    items[idx]["skip_reason"] = skip_reasons.get(idx, "")
+                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
             pairs_data.append(updated)
         save_order_data(
             {
@@ -3347,8 +3361,6 @@ class App:
             filtered_items: list[dict] = []
             for i, item in enumerate(items_src):
                 pair = _pair_for_index(i)
-                if pair.get("skip"):
-                    continue
                 filtered_items.append(item)
                 pairs.append(pair)
                 indices.append(i)
@@ -3362,8 +3374,6 @@ class App:
             if idx < len(self.pair_vars):
                 include = bool(self.pair_vars[idx].get())
             pair = _pair_for_index(idx)
-            if pair.get("skip"):
-                include = False
             if include:
                 selected_items.append(item)
                 selected_pairs.append(pair)
@@ -3922,6 +3932,8 @@ class App:
         pair_orders_src: list[str] = []
         pair_contexts: list[dict] = []
         flat_candidates: list[dict] = []
+        initial_skip_indices: set[int] = set()
+        initial_skip_reasons: dict[int, str] = {}
         for idx, it in enumerate(items):
             pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
             art_id = pair.get("art_id", "")
@@ -3940,6 +3952,12 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            skip_flag = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
+            if skip_flag:
+                initial_skip_indices.add(pair_idx)
+                if skip_reason:
+                    initial_skip_reasons[pair_idx] = skip_reason
             # Capture metadata needed to build the flat PDF review entry
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
             glue = it.get("gluetab", "")
@@ -3970,6 +3988,8 @@ class App:
                 "paperType": paper,
                 "lamType": lam,
                 "order_id": order_id,
+                "skip": skip_flag,
+                "skip_reason": skip_reason,
             }
             raw_pairs.append(entry)
             pair_orders_src.append(order_id)
@@ -3981,6 +4001,8 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
 
@@ -3988,7 +4010,8 @@ class App:
             raw_pairs, pair_contexts, self.log_message
         )
 
-        skip_set = set(skip_indices)
+        skip_set = set(skip_indices) | initial_skip_indices
+        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
         pairs_data: list[dict] = []
         pair_orders: list[str] = []
         for idx, entry in enumerate(raw_pairs):
@@ -3997,10 +4020,10 @@ class App:
                 updated["art_path"] = assignments[idx]
             if idx in skip_set:
                 updated["skip"] = True
-                updated["skip_reason"] = skip_reasons.get(idx, "")
+                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
                 if idx < len(items):
                     items[idx]["skip"] = True
-                    items[idx]["skip_reason"] = skip_reasons.get(idx, "")
+                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
             pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
