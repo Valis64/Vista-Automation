@@ -829,7 +829,83 @@ def resolve_paired_page_art(
     def has_page(folder: str) -> bool:
         return bool(find_page(folder, 1) or find_page(folder, 2))
 
-    def locate_folder(base_code: str, indices: list[int]) -> str:
+    def find_two_page_pdf(folder: str, art_id: str, base_lower: str) -> str:
+        art_id_l = art_id.lower()
+        best_match = ""
+        best_score = -1
+        import fitz
+
+        try:
+            for name in os.listdir(folder):
+                if not name.lower().endswith(".pdf"):
+                    continue
+                path = os.path.join(folder, name)
+                if not os.path.isfile(path):
+                    continue
+                low = name.lower()
+                score = 0
+                if art_id_l and art_id_l in low:
+                    score += 2
+                if base_lower and base_lower in low:
+                    score += 1
+                try:
+                    with fitz.open(path) as doc:
+                        if doc.page_count >= 2:
+                            if score > best_score:
+                                best_match = path
+                                best_score = score
+                except Exception:
+                    continue
+        except Exception:
+            return ""
+        return best_match
+
+    def split_two_page_pdf(pdf_path: str, dest_dir: str) -> tuple[str, str]:
+        if not pdf_path or not os.path.isfile(pdf_path):
+            return "", ""
+        import fitz
+
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception:
+            return "", ""
+
+        try:
+            if doc.page_count < 2:
+                return "", ""
+
+            def unique_page_path(number: int) -> str:
+                base = f"page{number}.pdf"
+                candidate = os.path.join(dest_dir, base)
+                if not os.path.exists(candidate):
+                    return candidate
+                stem, ext = os.path.splitext(base)
+                counter = 1
+                while True:
+                    candidate = os.path.join(dest_dir, f"{stem}_{counter}{ext}")
+                    if not os.path.exists(candidate):
+                        return candidate
+                    counter += 1
+
+            page_paths = ["", ""]
+            for idx in range(2):
+                out_doc = fitz.open()
+                out_doc.insert_pdf(doc, from_page=idx, to_page=idx)
+                dest = unique_page_path(idx + 1)
+                out_doc.save(dest)
+                out_doc.close()
+                page_paths[idx] = dest
+            logger(
+                f"Extracted two-page PDF {pdf_path} into {page_paths[0]} and {page_paths[1]}."
+            )
+            return page_paths[0], page_paths[1]
+        finally:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+    def locate_folder(base_code: str, indices: list[int]) -> tuple[str, str]:
         base_lower = base_code.lower()
         for idx in indices:
             if idx >= limit:
@@ -840,33 +916,39 @@ def resolve_paired_page_art(
             art_id = str(ctx.get("art_id") or "")
             art_id_l = art_id.lower()
             if art_path:
-                if os.path.isdir(art_path) and has_page(art_path):
-                    return art_path
+                if os.path.isdir(art_path):
+                    page_pdf = find_two_page_pdf(art_path, art_id, base_lower)
+                    if has_page(art_path) or page_pdf:
+                        return art_path, page_pdf
                 if os.path.isfile(art_path):
                     parent = os.path.dirname(art_path)
-                    if os.path.isdir(parent) and has_page(parent):
-                        return parent
+                    if os.path.isdir(parent):
+                        page_pdf = find_two_page_pdf(parent, art_id, base_lower)
+                        if has_page(parent) or page_pdf:
+                            return parent, page_pdf
             for root in collect_search_dirs(ctx):
                 if not os.path.isdir(root):
                     continue
                 root_name = os.path.basename(root.rstrip(os.sep)).lower()
-                if art_id_l and art_id_l in root_name and has_page(root):
-                    return root
-                if base_lower and base_lower in root_name and has_page(root):
-                    return root
+                page_pdf = find_two_page_pdf(root, art_id, base_lower)
+                if art_id_l and art_id_l in root_name and (has_page(root) or page_pdf):
+                    return root, page_pdf
+                if base_lower and base_lower in root_name and (has_page(root) or page_pdf):
+                    return root, page_pdf
                 try:
                     for name in os.listdir(root):
                         candidate = os.path.join(root, name)
                         if not os.path.isdir(candidate):
                             continue
                         low = name.lower()
-                        if art_id_l and art_id_l in low and has_page(candidate):
-                            return candidate
-                        if base_lower in low and has_page(candidate):
-                            return candidate
+                        page_pdf = find_two_page_pdf(candidate, art_id, base_lower)
+                        if art_id_l and art_id_l in low and (has_page(candidate) or page_pdf):
+                            return candidate, page_pdf
+                        if base_lower in low and (has_page(candidate) or page_pdf):
+                            return candidate, page_pdf
                 except Exception:
                     continue
-        return ""
+        return "", ""
 
     pair_map: dict[str, dict[str, int | None]] = {}
     for idx in range(limit):
@@ -910,7 +992,7 @@ def resolve_paired_page_art(
             art_id = str(contexts[idx].get("art_id") or art_id)
             if art_id:
                 break
-        folder = locate_folder(base_code, indices)
+        folder, pdf_path = locate_folder(base_code, indices)
         page1 = page2 = ""
         if folder:
             logger(
@@ -918,9 +1000,19 @@ def resolve_paired_page_art(
             )
             page1 = find_page(folder, 1)
             page2 = find_page(folder, 2)
+            if not page1 and pdf_path:
+                page1, page2 = split_two_page_pdf(pdf_path, folder)
 
         fallback_art = resolve_standard_art(base_idx)
-        if folder and page1:
+        if not page1 and not page2 and fallback_art and fallback_art.lower().endswith(".pdf"):
+            alt_dir = os.path.dirname(fallback_art) or tempfile.gettempdir()
+            page1, page2 = split_two_page_pdf(fallback_art, alt_dir)
+            if page1:
+                logger(
+                    f"Using two-page PDF art for PO pair {base_code} from {fallback_art}."
+                )
+
+        if page1:
             if base_idx is not None and base_idx < len(entries):
                 assignments[base_idx] = page1
             if mate_idx is not None and mate_idx < len(entries):
@@ -928,7 +1020,7 @@ def resolve_paired_page_art(
                     assignments[mate_idx] = page2
                 else:
                     logger(
-                        f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
+                        f"Warning: page2.pdf not found for {base_code} in {folder or os.path.dirname(page1) or 'unknown'}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
                     )
                     mark_skip(mate_idx, "Missing page2.pdf")
         elif fallback_art and base_idx is not None and base_idx < len(entries):
