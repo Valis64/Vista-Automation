@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import fitz
+
 from order_gui import (
     find_template_file,
     prepare_flat_review_entries,
@@ -84,6 +86,41 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertIn(1, skips)
             self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
             self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
+
+    def test_two_page_pdf_without_named_pages_is_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "22222"
+            art_id = "ARTTWO"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            pdf_path = os.path.join(folder, "art.pdf")
+
+            doc = fitz.open()
+            doc.new_page()
+            doc.new_page()
+            doc.save(pdf_path)
+            doc.close()
+
+            entries = [
+                {"template": "PO10", "art_path": ""},
+                {"template": "PO10B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertTrue(assignments.get(0, "").lower().endswith("page1.pdf"))
+            self.assertTrue(assignments.get(1, "").lower().endswith("page2.pdf"))
+            self.assertTrue(os.path.exists(assignments[0]))
+            self.assertTrue(os.path.exists(assignments[1]))
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
 
     def test_missing_mate_logs_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
