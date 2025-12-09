@@ -1,8 +1,20 @@
 {
   "defaultRotation": 0,
   "templates": {
-    "CD0434": 90,
-    "PB001": 180,
-    "PB005": 180
+    "CD0434": {
+      "templateCode": "CD0434",
+      "dieName": "CD0434",
+      "rotation": 90
+    },
+    "PB001": {
+      "templateCode": "PB001",
+      "dieName": "PB001",
+      "rotation": 180
+    },
+    "PB005": {
+      "templateCode": "PB005",
+      "dieName": "PB005",
+      "rotation": 180
+    }
   }
 }

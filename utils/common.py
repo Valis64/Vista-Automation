@@ -14,6 +14,8 @@ else:
     APP_DIR = Path(__file__).resolve().parent.parent
 
 TEMPLATE_SETTINGS_DIR = APP_DIR / "template_settings"
+BLEED_FAILSAFE_FILE = TEMPLATE_SETTINGS_DIR / "BleedFailSafeSettings.json"
+DEFAULT_BLEED_FAILSAFE_SETTINGS = {"defaultRotation": 0, "templates": {}}
 
 ALLOWED_ALIGNMENTS = [
     "top-left",
@@ -41,6 +43,12 @@ def get_laminate_color(name: str) -> str:
     """Return the hex color string for the given laminate name."""
     key = name.lower().replace(" ", "")
     return LAM_COLORS.get(key, "#000000")
+
+
+def _load_schema() -> dict:
+    schema_path = TEMPLATE_SETTINGS_DIR / "schema.json"
+    with schema_path.open("r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def load_template_settings(code: str, *, defaults: bool = True) -> dict:
@@ -92,9 +100,7 @@ def validate_template_settings(data: dict) -> bool:
     Returns True if ``data`` is valid; otherwise raises ``ValueError`` with a
     descriptive message.
     """
-    schema_path = TEMPLATE_SETTINGS_DIR / "schema.json"
-    with schema_path.open("r", encoding="utf-8") as f:
-        schema = json.load(f)
+    schema = _load_schema()
     try:
         jsonschema.validate(instance=data, schema=schema)
     except jsonschema.ValidationError as exc:
@@ -109,6 +115,112 @@ def save_template_settings(code: str, data: dict) -> None:
     TEMPLATE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _parse_rotation(value: object, fallback: float | int | None = None) -> float | int | None:
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            val = float(value)
+            return int(val) if val.is_integer() else val
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def _normalize_failsafe_template_entry(entry: object, code: str) -> dict:
+    normalized: dict[str, object] = {}
+    rotation = _parse_rotation(entry, fallback=None)
+    if isinstance(entry, dict):
+        normalized.update(entry)
+        rotation = _parse_rotation(entry.get("rotation"), fallback=rotation)
+    if rotation is not None:
+        normalized["rotation"] = rotation
+    if code:
+        normalized.setdefault("templateCode", code)
+    die_name = normalized.get("dieName")
+    if isinstance(die_name, str) and die_name.strip():
+        normalized["dieName"] = die_name.strip()
+    elif code:
+        normalized["dieName"] = code
+    return normalized
+
+
+def normalize_bleed_failsafe_settings(data: dict | None, *, defaults: bool = True) -> dict:
+    if not isinstance(data, dict):
+        data = {}
+    normalized: dict[str, object] = {}
+    default_rotation = _parse_rotation(
+        data.get("defaultRotation", data.get("rotation")),
+        fallback=0 if defaults else None,
+    )
+    if default_rotation is not None:
+        normalized["defaultRotation"] = default_rotation
+
+    templates: dict[str, dict] = {}
+    raw_templates = data.get("templates")
+    if isinstance(raw_templates, list):
+        for entry in raw_templates:
+            if not isinstance(entry, dict):
+                continue
+            code = str(entry.get("templateCode") or entry.get("dieName") or "").strip().upper()
+            if not code:
+                continue
+            templates[code] = _normalize_failsafe_template_entry(entry, code)
+    elif isinstance(raw_templates, dict):
+        for code, entry in raw_templates.items():
+            code_str = str(code).strip().upper()
+            if not code_str:
+                continue
+            templates[code_str] = _normalize_failsafe_template_entry(entry, code_str)
+    normalized["templates"] = templates
+
+    if defaults:
+        normalized.setdefault("defaultRotation", 0)
+        normalized.setdefault("templates", {})
+    return normalized
+
+
+def validate_bleed_failsafe_settings(data: dict) -> bool:
+    """Validate bleed fail-safe settings using the schema section."""
+
+    schema = _load_schema().get("BleedFailSafeSettings")
+    if not schema:
+        raise FileNotFoundError("Bleed fail-safe schema not found")
+    try:
+        jsonschema.validate(instance=data, schema=schema)
+    except jsonschema.ValidationError as exc:
+        raise ValueError(f"Invalid bleed fail-safe settings: {exc.message}") from exc
+    return True
+
+
+def load_bleed_failsafe_settings(*, defaults: bool = True) -> dict:
+    """Load fail-safe settings for bleed recreation."""
+    fallback = normalize_bleed_failsafe_settings(
+        DEFAULT_BLEED_FAILSAFE_SETTINGS, defaults=True
+    )
+
+    if not BLEED_FAILSAFE_FILE.exists():
+        return fallback if defaults else {}
+    try:
+        with BLEED_FAILSAFE_FILE.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        normalized = normalize_bleed_failsafe_settings(data, defaults=defaults)
+        validate_bleed_failsafe_settings(normalized)
+        return normalized
+    except Exception:
+        return fallback if defaults else {}
+
+
+def save_bleed_failsafe_settings(data: dict) -> None:
+    """Persist normalized bleed fail-safe settings."""
+
+    normalized = normalize_bleed_failsafe_settings(data, defaults=True)
+    validate_bleed_failsafe_settings(normalized)
+    TEMPLATE_SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    with BLEED_FAILSAFE_FILE.open("w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=False, indent=2)
 
 
 def update_template_settings(code: str, updates: dict) -> None:
@@ -164,9 +276,15 @@ def import_template_settings(archive_path: str | Path, *, overwrite: bool = Fals
                 raise FileExistsError(dest)
             with zf.open(info) as f:
                 data = json.load(f)
-            validate_template_settings(data)
+            if name == "BleedFailSafeSettings.json":
+                normalized = normalize_bleed_failsafe_settings(data, defaults=True)
+                validate_bleed_failsafe_settings(normalized)
+                payload = normalized
+            else:
+                validate_template_settings(data)
+                payload = data
             with dest.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
 def is_coffee_sleeve(template: str) -> bool:
@@ -188,6 +306,10 @@ __all__ = [
     "ALLOWED_ALIGNMENTS",
     "LAM_COLORS",
     "get_laminate_color",
+    "load_bleed_failsafe_settings",
+    "save_bleed_failsafe_settings",
+    "validate_bleed_failsafe_settings",
+    "normalize_bleed_failsafe_settings",
     "load_template_settings",
     "save_template_settings",
     "update_template_settings",

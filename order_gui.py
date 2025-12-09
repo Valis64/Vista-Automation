@@ -33,7 +33,10 @@ from utils.common import (
     ALLOWED_ALIGNMENTS,
     LAM_COLORS,
     get_laminate_color,
+    load_bleed_failsafe_settings,
+    save_bleed_failsafe_settings,
     load_template_settings,
+    normalize_bleed_failsafe_settings,
     save_template_settings,
     update_template_settings,
     export_template_settings,
@@ -2110,8 +2113,11 @@ class App:
         win = tk.Toplevel(self.root)
         win.title("Template Settings")
 
+        template_frame = tk.LabelFrame(win, text="Template Settings")
+        template_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
         search_var = tk.StringVar()
-        search_frame = tk.Frame(win)
+        search_frame = tk.Frame(template_frame)
         search_frame.pack(fill="x", padx=5, pady=(5, 0))
         tk.Label(search_frame, text="Search").pack(side="left")
         tk.Entry(search_frame, textvariable=search_var).pack(
@@ -2121,7 +2127,7 @@ class App:
             side="left"
         )
 
-        table_frame = tk.Frame(win)
+        table_frame = tk.Frame(template_frame)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
         columns = ("code", "rotation", "bleed", "mirror", "artworkScale", "alignment")
         tree = ttk.Treeview(
@@ -2199,7 +2205,7 @@ class App:
 
         tree.bind("<<TreeviewSelect>>", load_selected)
 
-        edit_frame = tk.Frame(win)
+        edit_frame = tk.Frame(template_frame)
         edit_frame.pack(fill="x", padx=5, pady=5)
         tk.Label(edit_frame, text="Rotation").grid(row=0, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
@@ -2480,6 +2486,205 @@ class App:
             if path.exists():
                 tree.selection_set(code)
                 load_selected()
+
+        ttk.Separator(win, orient="horizontal").pack(fill="x", pady=5)
+
+        failsafe_frame = tk.LabelFrame(win, text="Bleed Fail-Safe Settings")
+        failsafe_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        failsafe_state: dict[str, dict] = {"data": load_bleed_failsafe_settings()}
+        fs_default_var = tk.StringVar(
+            value=str(failsafe_state["data"].get("defaultRotation", 0))
+        )
+        fs_code_var = tk.StringVar()
+        fs_die_var = tk.StringVar()
+        fs_rotation_var = tk.StringVar()
+        fs_status_var = tk.StringVar()
+        fs_unsaved = {"flag": False}
+
+        fs_table_frame = tk.Frame(failsafe_frame)
+        fs_table_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        fs_columns = ("code", "dieName", "rotation")
+        fs_tree = ttk.Treeview(
+            fs_table_frame,
+            columns=fs_columns,
+            show="headings",
+            selectmode="browse",
+            height=6,
+        )
+        fs_tree.pack(side="left", fill="both", expand=True)
+        for col in fs_columns:
+            heading = "Die Name" if col == "dieName" else col.title()
+            width = 220 if col == "dieName" else 140
+            anchor = "w" if col in {"code", "dieName"} else "center"
+            fs_tree.heading(col, text=heading)
+            fs_tree.column(col, width=width, anchor=anchor)
+        fs_scroll = ttk.Scrollbar(fs_table_frame, orient="vertical", command=fs_tree.yview)
+        fs_scroll.pack(side="left", fill="y")
+        fs_tree.configure(yscrollcommand=fs_scroll.set)
+
+        fs_edit_frame = tk.Frame(failsafe_frame)
+        fs_edit_frame.pack(fill="x", padx=5, pady=5)
+        tk.Label(fs_edit_frame, text="Default Rotation").grid(row=0, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_default_var).grid(row=0, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Template Code").grid(row=1, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_code_var).grid(row=1, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Die Name").grid(row=2, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_die_var).grid(row=2, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Rotation").grid(row=3, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_rotation_var).grid(row=3, column=1, sticky="we")
+        fs_edit_frame.grid_columnconfigure(1, weight=1)
+
+        def refresh_failsafe_table(*_):
+            selection = fs_tree.selection()
+            fs_tree.delete(*fs_tree.get_children())
+            data = failsafe_state["data"]
+            fs_default_var.set(str(data.get("defaultRotation", 0)))
+            for code_key, entry in sorted(data.get("templates", {}).items()):
+                die_name = entry.get("dieName", code_key)
+                rotation_val = entry.get("rotation", "")
+                fs_tree.insert("", "end", iid=code_key, values=(code_key, die_name, rotation_val))
+            if selection and selection[0] in fs_tree.get_children():
+                fs_tree.selection_set(selection[0])
+                load_failsafe_selected()
+            fs_unsaved["flag"] = False
+            update_failsafe_state()
+
+        def load_failsafe_selected(event=None):
+            sel = fs_tree.selection()
+            if not sel:
+                return
+            code_key = sel[0]
+            entry = failsafe_state["data"].get("templates", {}).get(code_key, {})
+            fs_code_var.set(code_key)
+            fs_die_var.set(str(entry.get("dieName", code_key)))
+            fs_rotation_var.set(str(entry.get("rotation", "")))
+            fs_unsaved["flag"] = False
+            update_failsafe_state()
+
+        fs_tree.bind("<<TreeviewSelect>>", load_failsafe_selected)
+
+        def failsafe_validate() -> bool:
+            default_text = fs_default_var.get().strip()
+            try:
+                if default_text:
+                    float(default_text)
+            except ValueError:
+                return False
+
+            code_value = fs_code_var.get().strip().upper()
+            die_name_value = fs_die_var.get().strip()
+            rotation_text = fs_rotation_var.get().strip()
+            if code_value or die_name_value or rotation_text:
+                if not (code_value and die_name_value and rotation_text):
+                    return False
+                try:
+                    float(rotation_text)
+                except ValueError:
+                    return False
+            return True
+
+        def mark_failsafe_unsaved(*_):
+            fs_unsaved["flag"] = True
+            update_failsafe_state()
+
+        def update_failsafe_state():
+            if fs_unsaved["flag"] and failsafe_validate():
+                fs_save_btn.config(state="normal")
+            else:
+                fs_save_btn.config(state="disabled")
+
+        def save_failsafe_settings_ui():
+            if not failsafe_validate():
+                return
+            data = normalize_bleed_failsafe_settings(failsafe_state["data"], defaults=True)
+            default_text = fs_default_var.get().strip()
+            default_rotation = float(default_text) if default_text else 0
+            data["defaultRotation"] = default_rotation
+
+            code_value = fs_code_var.get().strip().upper()
+            die_name_value = fs_die_var.get().strip()
+            rotation_text = fs_rotation_var.get().strip()
+            if code_value or die_name_value or rotation_text:
+                if not code_value:
+                    messagebox.showerror("Error", "Template code is required")
+                    return
+                if not die_name_value:
+                    messagebox.showerror("Error", "Die name is required")
+                    return
+                if not rotation_text:
+                    messagebox.showerror("Error", "Rotation is required")
+                    return
+                rotation_value = float(rotation_text)
+                data.setdefault("templates", {})[code_value] = {
+                    "templateCode": code_value,
+                    "dieName": die_name_value,
+                    "rotation": rotation_value,
+                }
+
+            normalized = normalize_bleed_failsafe_settings(data, defaults=True)
+            try:
+                save_bleed_failsafe_settings(normalized)
+                failsafe_state["data"] = normalized
+                fs_status_var.set("Saved")
+                win.after(2000, lambda: fs_status_var.set(""))
+                fs_unsaved["flag"] = False
+                refresh_failsafe_table()
+                if code_value and code_value in fs_tree.get_children():
+                    fs_tree.selection_set(code_value)
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+
+        def add_failsafe_entry():
+            fs_tree.selection_remove(fs_tree.selection())
+            fs_code_var.set("")
+            fs_die_var.set("")
+            fs_rotation_var.set("")
+            fs_unsaved["flag"] = True
+            update_failsafe_state()
+
+        def delete_failsafe_entry():
+            sel = fs_tree.selection()
+            if not sel:
+                return
+            code_value = sel[0]
+            if not messagebox.askyesno("Delete", f"Delete fail-safe for {code_value}?"):
+                return
+            data = normalize_bleed_failsafe_settings(failsafe_state["data"], defaults=True)
+            data.get("templates", {}).pop(code_value, None)
+            try:
+                save_bleed_failsafe_settings(data)
+                failsafe_state["data"] = load_bleed_failsafe_settings()
+                fs_code_var.set("")
+                fs_die_var.set("")
+                fs_rotation_var.set("")
+                fs_unsaved["flag"] = False
+                refresh_failsafe_table()
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+
+        fs_btn_frame = tk.Frame(fs_edit_frame)
+        fs_btn_frame.grid(row=4, column=0, columnspan=2, pady=5)
+        fs_save_btn = tk.Button(
+            fs_btn_frame, text="Save", state="disabled", command=save_failsafe_settings_ui
+        )
+        fs_save_btn.pack(side="left", padx=2)
+        tk.Button(fs_btn_frame, text="Add", command=add_failsafe_entry).pack(
+            side="left", padx=2
+        )
+        tk.Button(fs_btn_frame, text="Delete", command=delete_failsafe_entry).pack(
+            side="left", padx=2
+        )
+        tk.Label(fs_edit_frame, textvariable=fs_status_var, fg="green").grid(
+            row=5, column=0, columnspan=2, sticky="w"
+        )
+
+        fs_code_var.trace_add("write", mark_failsafe_unsaved)
+        fs_die_var.trace_add("write", mark_failsafe_unsaved)
+        fs_rotation_var.trace_add("write", mark_failsafe_unsaved)
+        fs_default_var.trace_add("write", mark_failsafe_unsaved)
+
+        refresh_failsafe_table()
 
     def save_settings(self):
         data = {
