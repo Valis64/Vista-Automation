@@ -101,18 +101,38 @@ function loadTemplateSettings(code) {
 }
 
 function loadBleedFailSafeSettings() {
+    var fallback = { defaultRotation: 0, templates: {} };
     var scriptDir = File($.fileName).parent;
     var f = File(scriptDir + '/template_settings/BleedFailSafeSettings.json');
-    if (!f.exists) return { defaultRotation: 0, templates: {} };
+    if (!f.exists) return fallback;
     f.encoding = 'UTF-8';
-    if (!f.open('r')) return { defaultRotation: 0, templates: {} };
+    if (!f.open('r')) return fallback;
     var txt = f.read();
     f.close();
     var obj = parseJSON(txt);
-    if (!obj || typeof obj !== 'object') return { defaultRotation: 0, templates: {} };
-    if (!obj.templates || typeof obj.templates !== 'object') obj.templates = {};
-    if (typeof obj.defaultRotation !== 'number') obj.defaultRotation = 0;
-    return obj;
+    if (!obj || typeof obj !== 'object') return fallback;
+    var normalized = { defaultRotation: obj.defaultRotation, templates: {} };
+    var templates = obj.templates || {};
+    if (templates && typeof templates === 'object') {
+        for (var key in templates) {
+            if (!templates.hasOwnProperty(key)) continue;
+            var value = templates[key];
+            if (value && typeof value === 'object') {
+                normalized.templates[key] = value;
+                if (!normalized.templates[key].dieName) normalized.templates[key].dieName = key;
+                if (!normalized.templates[key].templateCode) normalized.templates[key].templateCode = key;
+            } else if (typeof value === 'number') {
+                normalized.templates[key] = { dieName: key, templateCode: key, rotation: value };
+            }
+        }
+    }
+    if (typeof obj.defaultRotation === 'number') {
+        normalized.defaultRotation = obj.defaultRotation;
+    } else if (typeof obj.rotation === 'number') {
+        normalized.defaultRotation = obj.rotation;
+    }
+    if (typeof normalized.defaultRotation !== 'number') normalized.defaultRotation = 0;
+    return normalized;
 }
 
 var LAM_OPTIONS = [
@@ -979,9 +999,14 @@ function makeSpotBleedColor(doc) {
 
 function getBleedFailSafeRotation(templateCode) {
     var code = templateCode ? String(templateCode).toUpperCase() : '';
-    if (BLEED_FAILSAFE_SETTINGS.templates && code &&
-        typeof BLEED_FAILSAFE_SETTINGS.templates[code] === 'number') {
-        return BLEED_FAILSAFE_SETTINGS.templates[code];
+    if (BLEED_FAILSAFE_SETTINGS.templates && code) {
+        var entry = BLEED_FAILSAFE_SETTINGS.templates[code];
+        if (typeof entry === 'number') {
+            return entry;
+        }
+        if (entry && typeof entry.rotation === 'number') {
+            return entry.rotation;
+        }
     }
     if (typeof BLEED_FAILSAFE_SETTINGS.rotation === 'number') {
         return BLEED_FAILSAFE_SETTINGS.rotation;
