@@ -53,6 +53,7 @@ var PROGRESS_FILE = 'jsx_progress.txt';
 var PAUSE_FILE = 'jsx_pause.flag';
 var CANCEL_FILE = 'jsx_cancel.flag';
 var SUMMARY_ARTIFACT = 'last_run.json';
+var BLEED_FAILSAFE_SETTINGS = loadBleedFailSafeSettings();
 
 var CANCEL_REQUESTED = false;
 
@@ -97,6 +98,21 @@ function loadTemplateSettings(code) {
     f.close();
     var obj = parseJSON(txt);
     return obj || {};
+}
+
+function loadBleedFailSafeSettings() {
+    var scriptDir = File($.fileName).parent;
+    var f = File(scriptDir + '/template_settings/BleedFailSafeSettings.json');
+    if (!f.exists) return { defaultRotation: 0, templates: {} };
+    f.encoding = 'UTF-8';
+    if (!f.open('r')) return { defaultRotation: 0, templates: {} };
+    var txt = f.read();
+    f.close();
+    var obj = parseJSON(txt);
+    if (!obj || typeof obj !== 'object') return { defaultRotation: 0, templates: {} };
+    if (!obj.templates || typeof obj.templates !== 'object') obj.templates = {};
+    if (typeof obj.defaultRotation !== 'number') obj.defaultRotation = 0;
+    return obj;
 }
 
 var LAM_OPTIONS = [
@@ -936,6 +952,46 @@ function findBleedSpot(doc) {
     return null;
 }
 
+function ensureBleedSpot(doc) {
+    if (!doc) return null;
+    var bleed = findBleedSpot(doc);
+    if (!bleed) {
+        bleed = doc.spots.add();
+        bleed.name = 'Bleed';
+        bleed.colorType = ColorModel.SPOT;
+    }
+    var cmyk = new CMYKColor();
+    cmyk.cyan = 0;
+    cmyk.magenta = 100;
+    cmyk.yellow = 100;
+    cmyk.black = 0;
+    bleed.color = cmyk;
+    return bleed;
+}
+
+function makeSpotBleedColor(doc) {
+    var spot = ensureBleedSpot(doc);
+    var sc = new SpotColor();
+    sc.spot = spot;
+    sc.tint = 100;
+    return sc;
+}
+
+function getBleedFailSafeRotation(templateCode) {
+    var code = templateCode ? String(templateCode).toUpperCase() : '';
+    if (BLEED_FAILSAFE_SETTINGS.templates && code &&
+        typeof BLEED_FAILSAFE_SETTINGS.templates[code] === 'number') {
+        return BLEED_FAILSAFE_SETTINGS.templates[code];
+    }
+    if (typeof BLEED_FAILSAFE_SETTINGS.rotation === 'number') {
+        return BLEED_FAILSAFE_SETTINGS.rotation;
+    }
+    if (typeof BLEED_FAILSAFE_SETTINGS.defaultRotation === 'number') {
+        return BLEED_FAILSAFE_SETTINGS.defaultRotation;
+    }
+    return 0;
+}
+
 function usesBleedSpot(color, spot) {
     if (!color || color.typename !== 'SpotColor' || !color.spot) return false;
     var colorSpot = color.spot;
@@ -952,8 +1008,9 @@ function usesBleedSpot(color, spot) {
 
 function findBleedPath(doc, colorFn, createLayer) {
     var bleedGroup;
+    var bleedLayer = null;
     if (createLayer) {
-        var bleedLayer = doc.layers.add();
+        bleedLayer = doc.layers.add();
         bleedLayer.name = 'Bleed_Layer';
         bleedGroup = bleedLayer.groupItems.add();
     } else {
@@ -984,15 +1041,23 @@ function findBleedPath(doc, colorFn, createLayer) {
         paths[i].move(bleedGroup, ElementPlacement.PLACEATEND);
     }
 
-    if (bleedGroup.pageItems.length === 0) alertAndExit('Bleed paths not found.');
+    if (bleedGroup.pageItems.length === 0) {
+        if (bleedLayer) {
+            bleedLayer.remove();
+        } else {
+            bleedGroup.remove();
+        }
+        return null;
+    }
     return bleedGroup;
 }
 
 function findTopBleedPath(doc, createLayer) {
-    if (doc.pathItems.length === 0) alertAndExit('Bleed paths not found.');
+    if (doc.pathItems.length === 0) return null;
     var bleedGroup;
+    var bleedLayer = null;
     if (createLayer) {
-        var bleedLayer = doc.layers.add();
+        bleedLayer = doc.layers.add();
         bleedLayer.name = 'Bleed_Layer';
         bleedGroup = bleedLayer.groupItems.add();
     } else {
@@ -1000,7 +1065,59 @@ function findTopBleedPath(doc, createLayer) {
     }
     var p = doc.pathItems[doc.pathItems.length - 1];
     p.move(bleedGroup, ElementPlacement.PLACEATEND);
+    if (bleedGroup.pageItems.length === 0) {
+        if (bleedLayer) {
+            bleedLayer.remove();
+        } else {
+            bleedGroup.remove();
+        }
+        return null;
+    }
     return bleedGroup;
+}
+
+function runBleedFailSafe(artworkDoc, templateFile, templateCode) {
+    var result = { bleedGroup: null, templateDoc: null };
+    if (!artworkDoc || !templateFile) return result;
+
+    writeProgress('Bleed not found. Running fail-safe recovery.');
+    var templateDoc = app.open(templateFile);
+    waitForDocLoad(templateDoc);
+    result.templateDoc = templateDoc;
+
+    var templateBleedPath = findLargestBleedPath(templateDoc, isTemplateBleedColor);
+    if (!templateBleedPath) {
+        templateDoc.close(SaveOptions.DONOTSAVECHANGES);
+        alertAndExit('Bleed paths not found.');
+    }
+
+    var bleedLayer = artworkDoc.layers.add();
+    bleedLayer.name = 'Bleed_Layer';
+    var bleedGroup = bleedLayer.groupItems.add();
+    var duplicate = templateBleedPath.duplicate(bleedGroup, ElementPlacement.PLACEATEND);
+    if (!duplicate) {
+        bleedLayer.remove();
+        templateDoc.close(SaveOptions.DONOTSAVECHANGES);
+        alertAndExit('Failed to duplicate template bleed path.');
+    }
+
+    duplicate.name = 'Bleed';
+    duplicate.hidden = false;
+    duplicate.locked = false;
+    duplicate.stroked = true;
+    duplicate.strokeColor = makeSpotBleedColor(artworkDoc);
+
+    var artboardRect = getArtboardRect(artworkDoc);
+    centerItemOnArtboard(bleedGroup, artboardRect);
+
+    var rotation = getBleedFailSafeRotation(templateCode);
+    if (rotation) {
+        bleedGroup.rotate(rotation, true, true, true, true, Transformation.CENTER);
+    }
+
+    result.bleedGroup = bleedGroup;
+    writeProgress('  Fail-safe bleed recreated');
+    return result;
 }
 
 function getBleedBounds(doc, colorFn) {
@@ -1108,6 +1225,29 @@ function getBoundsAnchor(bounds, alignment) {
         default:
             return [centerX, centerY];
     }
+}
+
+function getArtboardRect(doc) {
+    if (!doc || !doc.artboards || doc.artboards.length === 0) return null;
+    var active = doc.artboards[doc.artboards.getActiveArtboardIndex()];
+    for (var i = 0; i < doc.artboards.length; i++) {
+        var ab = doc.artboards[i];
+        if (ab.name && ab.name.toLowerCase() === 'art') {
+            active = ab;
+            break;
+        }
+    }
+    return active.artboardRect;
+}
+
+function centerItemOnArtboard(item, rect) {
+    if (!item || !rect) return;
+    var bounds = item.visibleBounds;
+    var itemCenterX = (bounds[0] + bounds[2]) / 2;
+    var itemCenterY = (bounds[1] + bounds[3]) / 2;
+    var rectCenterX = (rect[0] + rect[2]) / 2;
+    var rectCenterY = (rect[1] + rect[3]) / 2;
+    item.translate(rectCenterX - itemCenterX, rectCenterY - itemCenterY);
 }
 
 function alignGroupToPath(group, path, alignment) {
@@ -1378,9 +1518,16 @@ function processPair(pair, index) {
     }
 
     writeProgress('Finding bleed path in artwork');
+    var templateDoc = null;
     var bleedGroup = isCD0434 ?
         findTopBleedPath(artworkDoc, true) :
         findBleedPath(artworkDoc, isArtBleedColor, true);
+    if (!bleedGroup) {
+        var failSafe = runBleedFailSafe(artworkDoc, pair.templateFile, pair.templateCode);
+        bleedGroup = failSafe.bleedGroup;
+        templateDoc = failSafe.templateDoc;
+    }
+    if (!bleedGroup) alertAndExit('Bleed paths not found.');
     waitStep();
     writeProgress('  Bleed path located');
 
@@ -1389,10 +1536,14 @@ function processPair(pair, index) {
     waitStep();
     writeProgress('  Clip group created');
 
-    writeProgress('Opening template "' + pair.templateFile.name + '"');
-    var templateDoc = app.open(pair.templateFile);
-    waitForDocLoad(templateDoc);
-    writeProgress('  Template opened');
+    if (templateDoc) {
+        writeProgress('Template already open from fail-safe');
+    } else {
+        writeProgress('Opening template "' + pair.templateFile.name + '"');
+        templateDoc = app.open(pair.templateFile);
+        waitForDocLoad(templateDoc);
+        writeProgress('  Template opened');
+    }
 
     if (artworkDoc.documentColorSpace !== templateDoc.documentColorSpace) {
         var artSpace = artworkDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
