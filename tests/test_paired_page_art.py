@@ -29,8 +29,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART001"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
-            page2 = os.path.join(folder, "page2.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            page2 = os.path.join(folder, f"{art_id}_page2.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
             with open(page2, "w", encoding="utf-8"):
@@ -62,7 +62,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART002"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
 
@@ -91,7 +91,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART003"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
 
@@ -114,8 +114,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART004"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "PaGe1.PDF")
-            page2 = os.path.join(folder, "PAGE2.PDF")
+            page1 = os.path.join(folder, f"{art_id}_PaGe1.PDF")
+            page2 = os.path.join(folder, f"{art_id}_PAGE2.PDF")
             with open(page1, "w", encoding="utf-8"):
                 pass
             with open(page2, "w", encoding="utf-8"):
@@ -124,6 +124,70 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             entries = [
                 {"template": "PO4", "art_path": ""},
                 {"template": "PO4B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), page1)
+            self.assertEqual(assignments.get(1), page2)
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_prefers_stemmed_pages_when_legacy_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "55555"
+            art_id = "ARTPREF"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            preferred_page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            preferred_page2 = os.path.join(folder, f"{art_id}_page2.pdf")
+            legacy_page1 = os.path.join(folder, "page1.pdf")
+            legacy_page2 = os.path.join(folder, "page2.pdf")
+            for path in (preferred_page1, preferred_page2, legacy_page1, legacy_page2):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            entries = [
+                {"template": "PO7", "art_path": ""},
+                {"template": "PO7B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), preferred_page1)
+            self.assertEqual(assignments.get(1), preferred_page2)
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_legacy_page_names_are_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "77778"
+            art_id = "ARTLEG"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            page1 = os.path.join(folder, "page1.pdf")
+            page2 = os.path.join(folder, "page2.pdf")
+            for path in (page1, page2):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            entries = [
+                {"template": "POX", "art_path": ""},
+                {"template": "POXB", "art_path": ""},
             ]
             contexts = [
                 self._build_context(art_id, order_id, tmp),
@@ -191,8 +255,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             template = "PO15"
             art_folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(art_folder, exist_ok=True)
-            page1 = os.path.join(art_folder, "page1.pdf")
-            page2 = os.path.join(art_folder, "page2.pdf")
+            page1 = os.path.join(art_folder, f"{art_id}_page1.pdf")
+            page2 = os.path.join(art_folder, f"{art_id}_page2.pdf")
             for path in (page1, page2):
                 with open(path, "w", encoding="utf-8"):
                     pass
