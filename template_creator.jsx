@@ -438,6 +438,12 @@ function buildOptions(data) {
     var pairsInfo = data.pairs || [];
     var out = [];
 
+    function isSkipped(entry) {
+        if (!entry) return false;
+        var flag = entry.skip;
+        return flag === true || flag === 'true' || flag === 1 || flag === '1';
+    }
+
     function getLamOption(name) {
         if (!name) return { name: '', color: [0,0,0] };
         var lower = String(name).toLowerCase();
@@ -452,6 +458,11 @@ function buildOptions(data) {
     for (var i=0; i<pairsInfo.length; i++) {
         var pair = pairsInfo[i] || {};
         var item = items[i] || {};
+
+        if (isSkipped(pair) || isSkipped(item)) {
+            continue;
+        }
+
         var lam = getLamOption(pair.lamType || item.lamType);
         var paper = pair.paperType || item.paperType || '';
         out.push({
