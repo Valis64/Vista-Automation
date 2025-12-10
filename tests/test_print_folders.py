@@ -40,6 +40,18 @@ class ResolvePrintFolderTest(unittest.TestCase):
         folder = resolve_print_output_folder(str(nested_art), template_code="PO123")
         self.assertEqual(Path(folder), nested_art.parents[1] / PRINT_FOLDER_NAME)
 
+    def test_po_template_prefers_month_order_root_when_available(self):
+        month_root = Path("/tmp/month")
+        order_id = "35198"
+        extracted_page = Path("/tmp/downloads/35198_page1.pdf")
+        folder = resolve_print_output_folder(
+            str(extracted_page),
+            template_code="PO123",
+            month_root=str(month_root),
+            order_id=order_id,
+        )
+        self.assertEqual(Path(folder), month_root / order_id / PRINT_FOLDER_NAME)
+
     def test_p_template_code_uses_two_levels_up(self):
         folder = resolve_print_output_folder(str(self.art_path), template_code="PZ999")
         self.assertEqual(Path(folder), self.art_path.parents[2] / PRINT_FOLDER_NAME)
