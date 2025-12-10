@@ -3526,7 +3526,7 @@ class App:
         cur = items_src[self.index]
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
-        items, selected_pairs, _ = self.get_selected_items()
+        items, selected_pairs, selected_indices = self.get_selected_items()
         raw_pairs: list[dict] = []
         pair_contexts: list[dict] = []
         initial_skip_indices: set[int] = set()
@@ -3596,6 +3596,8 @@ class App:
                     items[idx]["skip"] = True
                     items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
             pairs_data.append(updated)
+
+        self._apply_paired_page_results(pairs_data, selected_indices)
         save_order_data(
             {
                 "items": items,
@@ -3747,6 +3749,44 @@ class App:
         for p in sorted(paths):
             self.open_directory(p)
         self._arrange_windows(list(paths))
+
+    def _apply_paired_page_results(
+        self,
+        resolved_pairs: Sequence[Mapping[str, Any]],
+        selected_indices: Sequence[int],
+    ) -> None:
+        """Update checklist data with resolved PO pair info and refresh the UI."""
+
+        target_items = self.batch_items if self.batch_items else self.items
+        target_pairs = self.batch_pairs if self.batch_pairs else self.pairs
+
+        if not resolved_pairs or not target_pairs:
+            return
+
+        index_map = list(selected_indices) or list(range(len(resolved_pairs)))
+        for local_idx, pair in enumerate(resolved_pairs):
+            if local_idx >= len(index_map):
+                break
+            idx = index_map[local_idx]
+            if idx >= len(target_pairs):
+                continue
+            target_pairs[idx].update(pair)
+            if pair.get("skip") and idx < len(target_items):
+                target_items[idx]["skip"] = True
+                target_items[idx]["skip_reason"] = pair.get("skip_reason", "")
+
+        missing_art = self.compute_missing_art_indices(target_items, target_pairs)
+        count = populate_pairs(
+            self.pair_frame,
+            self.pair_vars,
+            target_items,
+            target_pairs,
+            self.foil_vars,
+            self.emboss_vars,
+            self.emboss_detected,
+            missing_art=missing_art,
+        )
+        self.update_checklist_count(count)
 
     def move_art_to_art_folders(self):
         """Extract ZIPs and move art files into per-order ``art`` folders."""
@@ -4211,7 +4251,7 @@ class App:
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
-        items, selected_pairs, _ = self.get_selected_items()
+        items, selected_pairs, selected_indices = self.get_selected_items()
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
@@ -4319,6 +4359,7 @@ class App:
             pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
+        self._apply_paired_page_results(pairs_data, selected_indices)
         flat_entries, sample_entries = prepare_flat_review_entries(
             flat_candidates,
             assignments,
