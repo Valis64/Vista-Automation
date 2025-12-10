@@ -3816,18 +3816,104 @@ class App:
             foil_states = [var.get() for var in self.foil_vars] if self.foil_vars else []
             emboss_states = [var.get() for var in self.emboss_vars] if self.emboss_vars else []
 
-            missing_art = self.compute_missing_art_indices(items_src, pairs_src)
-            count = populate_pairs(
-                self.pair_frame,
-                self.pair_vars,
-                items_src,
-                pairs_src,
-                self.foil_vars,
-                self.emboss_vars,
-                self.emboss_detected,
-                missing_art=missing_art,
-            )
-            self.update_checklist_count(count)
+            repopulated = False
+            if pairs_src:
+                raw_pairs: list[dict] = []
+                pair_contexts: list[dict] = []
+                initial_skip_indices: set[int] = set()
+                initial_skip_reasons: dict[int, str] = {}
+
+                for idx, pair in enumerate(pairs_src):
+                    item = items_src[idx] if idx < len(items_src) else {}
+                    art_id = pair.get("art_id", "")
+                    template = pair.get("template", "")
+                    art_root = item.get("art_dir", self.art_dir_var.get())
+                    month_root = item.get("month_dir", self.month_dir_var.get())
+                    order_id = pair.get("order_id", item.get("order_id", self.order_id_var.get()))
+                    filename_source = (
+                        item.get("filename")
+                        or pair.get("filename")
+                        or item.get("artName")
+                        or pair.get("artName")
+                        or ""
+                    )
+                    filename_hint = ""
+                    if filename_source:
+                        filename_hint = sanitize_filename_base(
+                            os.path.splitext(str(filename_source))[0]
+                        )
+                    art_path = (
+                        pair.get("art_path")
+                        or item.get("art_path")
+                        or find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+                    )
+                    skip_flag = bool(pair.get("skip"))
+                    skip_reason = pair.get("skip_reason", "")
+                    if skip_flag:
+                        initial_skip_indices.add(idx)
+                        if skip_reason:
+                            initial_skip_reasons[idx] = skip_reason
+
+                    raw_pairs.append(
+                        {
+                            "art_id": art_id,
+                            "template": template,
+                            "art_path": art_path,
+                            "skip": skip_flag,
+                            "skip_reason": skip_reason,
+                        }
+                    )
+                    pair_contexts.append(
+                        {
+                            "art_id": art_id,
+                            "art_root": art_root,
+                            "month_root": month_root,
+                            "order_id": order_id,
+                            "art_path": art_path,
+                            "template": template,
+                            "skip": skip_flag,
+                            "skip_reason": skip_reason,
+                        }
+                    )
+
+                if raw_pairs:
+                    assignments, skip_indices, skip_reasons = resolve_paired_page_art(
+                        raw_pairs, pair_contexts, self.log_message
+                    )
+
+                    skip_set = set(skip_indices) | initial_skip_indices
+                    combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
+                    pairs_data: list[dict] = []
+                    for idx, entry in enumerate(raw_pairs):
+                        updated = dict(entry)
+                        if idx in assignments:
+                            updated["art_path"] = assignments[idx]
+                        if idx in skip_set:
+                            updated["skip"] = True
+                            updated["skip_reason"] = combined_skip_reasons.get(idx, "")
+                            if idx < len(items_src):
+                                items_src[idx]["skip"] = True
+                                items_src[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+                        pairs_data.append(updated)
+
+                    self._apply_paired_page_results(
+                        pairs_data, list(range(len(pairs_data)))
+                    )
+                    repopulated = True
+
+            if not repopulated:
+                missing_art = self.compute_missing_art_indices(items_src, pairs_src)
+                count = populate_pairs(
+                    self.pair_frame,
+                    self.pair_vars,
+                    items_src,
+                    pairs_src,
+                    self.foil_vars,
+                    self.emboss_vars,
+                    self.emboss_detected,
+                    missing_art=missing_art,
+                )
+                self.update_checklist_count(count)
 
             for idx, value in enumerate(pair_states):
                 if idx < len(self.pair_vars):
