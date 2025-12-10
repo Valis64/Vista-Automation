@@ -817,22 +817,45 @@ def resolve_paired_page_art(
         name_hint = str(entry.get("template") or ctx.get("template") or "")
         return find_art_file(art_root, art_id, month_root, order_id, name_hint)
 
-    def find_page(folder: str, number: int) -> str:
-        target = f"page{number}.pdf"
-        target_l = target.lower()
+    def find_page(folder: str, number: int, stems: Sequence[str]) -> str:
+        suffix = f"_page{number}.pdf"
+        suffix_l = suffix.lower()
+        legacy = f"page{number}.pdf"
+        legacy_l = legacy.lower()
+        stem_set = [s.lower() for s in stems if s]
+        candidates: list[tuple[int, str]] = []
         try:
             for name in os.listdir(folder):
                 path = os.path.join(folder, name)
-                if os.path.isfile(path) and name.lower() == target_l:
-                    return path
+                if not os.path.isfile(path):
+                    continue
+                low = name.lower()
+                if low == legacy_l:
+                    candidates.append((2, path))
+                    continue
+                if not low.endswith(suffix_l):
+                    continue
+                base = low[: -len(suffix_l)]
+                priority = 1
+                if stem_set:
+                    if base in stem_set:
+                        priority = 0
+                    elif any(base.endswith(stem) or stem.endswith(base) for stem in stem_set):
+                        priority = 1
+                    else:
+                        priority = 1
+                candidates.append((priority, path))
         except Exception:
             return ""
-        return ""
+        if not candidates:
+            return ""
+        candidates.sort(key=lambda item: (item[0], item[1].lower()))
+        return candidates[0][1]
 
-    def has_page(folder: str) -> bool:
-        return bool(find_page(folder, 1) or find_page(folder, 2))
+    def has_page(folder: str, stems: Sequence[str]) -> bool:
+        return bool(find_page(folder, 1, stems) or find_page(folder, 2, stems))
 
-    def locate_folder(base_code: str, indices: list[int]) -> str:
+    def locate_folder(base_code: str, indices: list[int], stems: list[str]) -> str:
         base_lower = base_code.lower()
         for idx in indices:
             if idx >= limit:
@@ -843,19 +866,19 @@ def resolve_paired_page_art(
             art_id = str(ctx.get("art_id") or "")
             art_id_l = art_id.lower()
             if art_path:
-                if os.path.isdir(art_path) and has_page(art_path):
+                if os.path.isdir(art_path) and has_page(art_path, stems):
                     return art_path
                 if os.path.isfile(art_path):
                     parent = os.path.dirname(art_path)
-                    if os.path.isdir(parent) and has_page(parent):
+                    if os.path.isdir(parent) and has_page(parent, stems):
                         return parent
             for root in collect_search_dirs(ctx):
                 if not os.path.isdir(root):
                     continue
                 root_name = os.path.basename(root.rstrip(os.sep)).lower()
-                if art_id_l and art_id_l in root_name and has_page(root):
+                if art_id_l and art_id_l in root_name and has_page(root, stems):
                     return root
-                if base_lower and base_lower in root_name and has_page(root):
+                if base_lower and base_lower in root_name and has_page(root, stems):
                     return root
                 try:
                     for name in os.listdir(root):
@@ -863,9 +886,9 @@ def resolve_paired_page_art(
                         if not os.path.isdir(candidate):
                             continue
                         low = name.lower()
-                        if art_id_l and art_id_l in low and has_page(candidate):
+                        if art_id_l and art_id_l in low and has_page(candidate, stems):
                             return candidate
-                        if base_lower in low and has_page(candidate):
+                        if base_lower in low and has_page(candidate, stems):
                             return candidate
                 except Exception:
                     continue
@@ -906,6 +929,32 @@ def resolve_paired_page_art(
             indices.append(base_idx)
         if not indices:
             continue
+        stems: list[str] = []
+        seen_stems: set[str] = set()
+        for idx in indices:
+            if idx >= limit:
+                continue
+            ctx = contexts[idx]
+            entry = entries[idx] if idx < len(entries) else {}
+            art_id = str(ctx.get("art_id") or entry.get("art_id") or "")
+            if art_id and art_id.lower() not in seen_stems:
+                stems.append(art_id)
+                seen_stems.add(art_id.lower())
+            for path in (
+                ctx.get("art_path") or "",
+                entry.get("art_path") if idx < len(entries) else "",
+            ):
+                if not path:
+                    continue
+                base_name = os.path.basename(path.rstrip(os.sep))
+                stem, _ = os.path.splitext(base_name)
+                stem_l = stem.lower()
+                if stem and stem_l not in seen_stems:
+                    stems.append(stem)
+                    seen_stems.add(stem_l)
+        if base_code and base_code.lower() not in seen_stems:
+            stems.append(base_code)
+            seen_stems.add(base_code.lower())
         art_id = ""
         for idx in indices:
             if idx >= limit:
@@ -913,14 +962,14 @@ def resolve_paired_page_art(
             art_id = str(contexts[idx].get("art_id") or art_id)
             if art_id:
                 break
-        folder = locate_folder(base_code, indices)
+        folder = locate_folder(base_code, indices, stems)
         page1 = page2 = ""
         if folder:
             logger(
                 f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
             )
-            page1 = find_page(folder, 1)
-            page2 = find_page(folder, 2)
+            page1 = find_page(folder, 1, stems)
+            page2 = find_page(folder, 2, stems)
 
         fallback_art = resolve_standard_art(base_idx)
         if folder and page1:
