@@ -245,10 +245,22 @@ def resolve_print_output_folder(
     if not is_po_template and name:
         is_po_template = _is_po(Path(name).name)
 
-    is_art_subfolder = path.parent.name.lower() == "art"
+    def _is_extracted_page_path(p: Path) -> bool:
+        """Return ``True`` when ``p`` looks like an extracted PO page path."""
 
-    if is_p_template and is_po_template and is_art_subfolder:
-        target_index = 1
+        name = p.name.lower()
+        if re.search(r"page\d+\.pdf$", name):
+            return True
+
+        parent = p.parent
+        parent_name = parent.name.lower()
+        if parent.suffix.lower() == ".pdf":
+            return True
+
+        return parent_name.endswith("_pages") or parent_name.endswith("_extracts")
+
+    if is_po_template:
+        target_index = 2 if _is_extracted_page_path(path) else 1
     else:
         target_index = 2 if is_p_template else 1
 
