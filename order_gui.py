@@ -212,6 +212,8 @@ def resolve_print_output_folder(
     template_filename: str = "",
     *,
     diagnostic: bool = False,
+    month_root: str = "",
+    order_id: str = "",
 ) -> str:
     """Determine the print export folder for a given art/template combination."""
 
@@ -261,6 +263,14 @@ def resolve_print_output_folder(
         return parent_name.endswith("_pages") or parent_name.endswith("_extracts")
 
     if is_po_template:
+        cleaned_order = str(order_id or "").strip()
+        cleaned_month = str(month_root or "").strip()
+        if cleaned_order and cleaned_month:
+            folder_name = (
+                DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
+            )
+            return str(Path(cleaned_month) / cleaned_order / folder_name)
+
         target_index = 2 if _is_extracted_page_path(path) else 1
     else:
         target_index = 2 if is_p_template else 1
@@ -388,6 +398,8 @@ def prepare_flat_review_entries(
             template_code,
             template_name,
             diagnostic=diagnostic,
+            month_root=candidate.get("month_root") or "",
+            order_id=order_id,
         )
         flat_path = os.path.join(
             print_folder,
@@ -4386,6 +4398,7 @@ class App:
                     "template": template,
                     "paper": paper,
                     "order_id": order_id,
+                    "month_root": month_root,
                     "art_id": art_id,
                     "glue": glue,
                     "lam": lam,
