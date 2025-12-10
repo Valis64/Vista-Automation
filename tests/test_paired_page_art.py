@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+import fitz
 
 from order_gui import (
     find_template_file,
@@ -232,6 +233,40 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(skip_reasons.get(1), "Missing extracted PO art")
             self.assertTrue(
                 any("Using standard art for PO pair" in msg for msg in logs)
+            )
+
+    def test_single_page_pdf_skips_mate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70001"
+            art_id = "SINGLEPAGE"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            doc = fitz.open()
+            try:
+                doc.new_page()
+                doc.save(base_art)
+            finally:
+                doc.close()
+
+            entries = [
+                {"template": "PO21", "art_path": base_art},
+                {"template": "PO21B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, base_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "No page 2 art")
+            self.assertTrue(
+                any("has only 1 page" in msg for msg in logs),
+                msg=f"Logs missing warning: {logs}",
             )
 
     def test_find_template_prefers_exact_template_code(self):

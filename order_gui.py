@@ -28,6 +28,7 @@ import time
 import threading
 import math
 import shutil
+import fitz
 from loading_window import LoadingWindow
 from utils.common import (
     ALLOWED_ALIGNMENTS,
@@ -814,6 +815,18 @@ def resolve_paired_page_art(
             ordered.append(path)
         return ordered
 
+    def pdf_page_count(path: str) -> int | None:
+        if not path or not path.lower().endswith(".pdf"):
+            return None
+        try:
+            doc = fitz.open(path)
+            try:
+                return doc.page_count
+            finally:
+                doc.close()
+        except Exception:
+            return None
+
     def resolve_standard_art(idx: int) -> str:
         if idx is None or idx >= limit:
             return ""
@@ -984,11 +997,24 @@ def resolve_paired_page_art(
             page2 = find_page(folder, 2, stems)
 
         fallback_art = resolve_standard_art(base_idx)
+        base_art_path = fallback_art or ""
+        mate_missing_second_page = False
+        if mate_idx is not None and base_art_path:
+            page_count = pdf_page_count(base_art_path)
+            if page_count is not None and page_count < 2:
+                mate_missing_second_page = True
+                logger(
+                    f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                )
+                mark_skip(mate_idx, "No page 2 art")
+
         if folder and page1:
             if base_idx is not None and base_idx < len(entries):
                 assignments[base_idx] = page1
             if mate_idx is not None and mate_idx < len(entries):
-                if page2:
+                if mate_missing_second_page:
+                    pass
+                elif page2:
                     assignments[mate_idx] = page2
                 else:
                     logger(
