@@ -14,17 +14,17 @@ class ResolvePrintFolderTest(unittest.TestCase):
 
     def test_standard_template_uses_order_folder(self):
         folder = resolve_print_output_folder(str(self.art_path), template_code="RT3711")
-        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
+        self.assertEqual(Path(folder), self.art_path.parents[0] / PRINT_FOLDER_NAME)
 
     def test_pb_template_code_uses_order_folder(self):
         folder = resolve_print_output_folder(str(self.art_path), template_code="PB004")
-        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
+        self.assertEqual(Path(folder), self.art_path.parents[0] / PRINT_FOLDER_NAME)
 
     def test_pb_template_filename_uses_order_folder(self):
         folder = resolve_print_output_folder(
             str(self.art_path), template_filename="PB004_template.ai"
         )
-        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
+        self.assertEqual(Path(folder), self.art_path.parents[0] / PRINT_FOLDER_NAME)
 
     def test_po_template_uses_order_folder_when_under_art(self):
         folder = resolve_print_output_folder(str(self.art_path), template_code="PO123")
@@ -42,21 +42,26 @@ class ResolvePrintFolderTest(unittest.TestCase):
 
     def test_p_template_code_uses_two_levels_up(self):
         folder = resolve_print_output_folder(str(self.art_path), template_code="PZ999")
-        self.assertEqual(Path(folder), self.art_path.parents[2] / PRINT_FOLDER_NAME)
+        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
 
     def test_p_template_filename_fallback(self):
         folder = resolve_print_output_folder(
             str(self.art_path), template_code="", template_filename="Ptemplate.ai"
         )
-        self.assertEqual(Path(folder), self.art_path.parents[2] / PRINT_FOLDER_NAME)
+        self.assertEqual(Path(folder), self.art_path.parents[1] / PRINT_FOLDER_NAME)
 
     def test_diagnostic_folder_name_preserved(self):
         folder = resolve_print_output_folder(
             str(self.art_path), template_code="PZ999", diagnostic=True
         )
         self.assertEqual(
-            Path(folder), self.art_path.parents[2] / DIAGNOSTIC_PRINT_FOLDER_NAME
+            Path(folder), self.art_path.parents[1] / DIAGNOSTIC_PRINT_FOLDER_NAME
         )
+
+    def test_fallback_handles_missing_parent_levels(self):
+        art_path = Path("file.ai")
+        folder = resolve_print_output_folder(str(art_path), template_code="P1")
+        self.assertEqual(Path(folder), art_path.parent / PRINT_FOLDER_NAME)
 
 
 if __name__ == "__main__":
