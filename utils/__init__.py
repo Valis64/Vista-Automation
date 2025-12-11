@@ -7,6 +7,7 @@ from .history import (
     update_last_run_flagged,
     summarize_history,
 )
+from .po_art import resolve_paired_page_art
 from review import FlaggedItem, FlagStatus, load_flags, save_flags
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "record_run_history",
     "update_last_run_flagged",
     "summarize_history",
+    "resolve_paired_page_art",
     "load_flags",
     "save_flags",
 ]
