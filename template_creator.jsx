@@ -289,7 +289,9 @@ function writeSummaryArtifact(folder, items) {
                 ' "template": "' + jsonEscape(it.template) + '",' +
                 ' "template_path": "' + jsonEscape(it.templatePath || '') + '",' +
                 ' "filename": "' + jsonEscape(it.filename || '') + '",' +
-                ' "flat": "' + jsonEscape(it.flat) + '"' +
+                ' "flat": "' + jsonEscape(it.flat) + '",' +
+                ' "skip": ' + (it.skip ? 'true' : 'false') + ',' +
+                ' "skip_reason": "' + jsonEscape(it.info && it.skip ? it.info : '') + '"' +
             ' }' + (i === items.length - 1 ? '' : ','));
         }
         lines.push('  ]');

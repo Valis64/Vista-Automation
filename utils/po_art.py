@@ -173,21 +173,34 @@ def _locate_folder(
     return ""
 
 
-def _build_pair_map(entries: Sequence[dict], limit: int) -> dict[str, dict[str, int | None]]:
-    pair_map: dict[str, dict[str, int | None]] = {}
+def _build_pair_map(entries: Sequence[dict], limit: int) -> dict[str, list[dict[str, int | None]]]:
+    pair_map: dict[str, list[dict[str, int | None]]] = {}
     for idx in range(limit):
         template = str(entries[idx].get("template", "") or "").strip().upper()
         if not template.startswith("PO") or template.startswith("POB"):
             continue
         is_mate = template.endswith("B") and len(template) > 1
         base_code = template[:-1] if is_mate else template
-        info = pair_map.setdefault(base_code, {"base": None, "mate": None})
+        bucket = pair_map.setdefault(base_code, [])
+
         if is_mate:
-            if info.get("mate") is None:
-                info["mate"] = idx
+            placed = False
+            for info in bucket:
+                if info.get("mate") is None and info.get("base") is not None:
+                    info["mate"] = idx
+                    placed = True
+                    break
+            if not placed:
+                bucket.append({"base": None, "mate": idx})
         else:
-            if info.get("base") is None:
-                info["base"] = idx
+            placed = False
+            for info in bucket:
+                if info.get("base") is None:
+                    info["base"] = idx
+                    placed = True
+                    break
+            if not placed:
+                bucket.append({"base": idx, "mate": None})
     return pair_map
 
 
@@ -217,109 +230,109 @@ def resolve_paired_page_art(
 
     pair_map = _build_pair_map(entries, limit)
 
-    for base_code, info in pair_map.items():
-        base_idx = info.get("base")
-        mate_idx = info.get("mate")
-        mate_template = (
-            entries[mate_idx].get("template", "")
-            if mate_idx is not None and mate_idx < len(entries)
-            else ""
-        )
-        mate_label = mate_template or "missing"
-        if mate_idx is None:
-            logger(
-                f"Warning: PO pair {base_code} missing mate template; expected {base_code}B."
+    for base_code, buckets in pair_map.items():
+        for info in buckets:
+            base_idx = info.get("base")
+            mate_idx = info.get("mate")
+            mate_template = (
+                entries[mate_idx].get("template", "")
+                if mate_idx is not None and mate_idx < len(entries)
+                else ""
             )
-        indices: list[int] = []
-        if mate_idx is not None:
-            indices.append(mate_idx)
-        if base_idx is not None:
-            indices.append(base_idx)
-        if not indices:
-            continue
-        stems: list[str] = []
-        seen_stems: set[str] = set()
-        for idx in indices:
-            if idx >= limit:
-                continue
-            ctx = contexts[idx]
-            entry = entries[idx] if idx < len(entries) else {}
-            art_id = str(ctx.get("art_id") or entry.get("art_id") or "")
-            if art_id and art_id.lower() not in seen_stems:
-                stems.append(art_id)
-                seen_stems.add(art_id.lower())
-            for path in (
-                ctx.get("art_path") or "",
-                entry.get("art_path") if idx < len(entries) else "",
-            ):
-                if not path:
-                    continue
-                base_name = os.path.basename(path.rstrip(os.sep))
-                stem, _ = os.path.splitext(base_name)
-                stem_l = stem.lower()
-                if stem and stem_l not in seen_stems:
-                    stems.append(stem)
-                    seen_stems.add(stem_l)
-        if base_code and base_code.lower() not in seen_stems:
-            stems.append(base_code)
-            seen_stems.add(base_code.lower())
-        art_id = ""
-        for idx in indices:
-            if idx >= limit:
-                continue
-            art_id = str(contexts[idx].get("art_id") or art_id)
-            if art_id:
-                break
-        folder = _locate_folder(base_code, entries, contexts, limit, indices, stems)
-        page1 = page2 = ""
-        if folder:
-            logger(
-                f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
-            )
-            page1 = _find_page(folder, 1, stems)
-            page2 = _find_page(folder, 2, stems)
-
-        fallback_art = _resolve_standard_art(entries, contexts, limit, base_idx)
-        base_art_path = fallback_art or ""
-        mate_missing_second_page = False
-        if mate_idx is not None and base_art_path:
-            page_count = _pdf_page_count(base_art_path)
-            if page_count is not None and page_count < 2:
-                mate_missing_second_page = True
+            mate_label = mate_template or "missing"
+            if mate_idx is None:
                 logger(
-                    f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                    f"Warning: PO pair {base_code} missing mate template; expected {base_code}B."
                 )
-                mark_skip(mate_idx, "No page 2 art")
-
-        if folder and page1:
-            if base_idx is not None and base_idx < len(entries):
-                assignments[base_idx] = page1
-            if mate_idx is not None and mate_idx < len(entries):
-                if mate_missing_second_page:
-                    pass
-                elif page2:
-                    assignments[mate_idx] = page2
-                else:
-                    logger(
-                        f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
-                    )
-                    mark_skip(mate_idx, "Missing page2.pdf")
-        elif fallback_art and base_idx is not None and base_idx < len(entries):
-            if folder and not page1:
-                logger(
-                    f"Warning: page1.pdf not found for {base_code} in {folder}; using standard art instead."
-                )
-            assignments[base_idx] = fallback_art
-            logger(
-                f"Using standard art for PO pair {base_code} because extracted pages are unavailable for mate {mate_label}."
-            )
+            indices: list[int] = []
             if mate_idx is not None:
-                mark_skip(mate_idx, "Missing extracted PO art")
-        else:
-            logger(
-                f"Error: could not locate extracted folder for PO pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
-            )
+                indices.append(mate_idx)
+            if base_idx is not None:
+                indices.append(base_idx)
+            if not indices:
+                continue
+            stems: list[str] = []
+            seen_stems: set[str] = set()
             for idx in indices:
-                mark_skip(idx, "No PO art found")
+                if idx >= limit:
+                    continue
+                ctx = contexts[idx]
+                entry = entries[idx] if idx < len(entries) else {}
+                art_id = str(ctx.get("art_id") or entry.get("art_id") or "")
+                if art_id and art_id.lower() not in seen_stems:
+                    stems.append(art_id)
+                    seen_stems.add(art_id.lower())
+                for path in (
+                    ctx.get("art_path") or "",
+                    entry.get("art_path") if idx < len(entries) else "",
+                ):
+                    if not path:
+                        continue
+                    base_name = os.path.basename(path.rstrip(os.sep))
+                    stem, _ = os.path.splitext(base_name)
+                    stem_l = stem.lower()
+                    if stem and stem_l not in seen_stems:
+                        stems.append(stem)
+                        seen_stems.add(stem_l)
+            if base_code and base_code.lower() not in seen_stems:
+                stems.append(base_code)
+                seen_stems.add(base_code.lower())
+            art_id = ""
+            for idx in indices:
+                if idx >= limit:
+                    continue
+                art_id = str(contexts[idx].get("art_id") or art_id)
+                if art_id:
+                    break
+            folder = _locate_folder(base_code, entries, contexts, limit, indices, stems)
+            page1 = page2 = ""
+            if folder:
+                logger(
+                    f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
+                )
+                page1 = _find_page(folder, 1, stems)
+                page2 = _find_page(folder, 2, stems)
+
+            fallback_art = _resolve_standard_art(entries, contexts, limit, base_idx)
+            base_art_path = fallback_art or ""
+            mate_missing_second_page = False
+            if mate_idx is not None and base_art_path:
+                page_count = _pdf_page_count(base_art_path)
+                if page_count is not None and page_count < 2:
+                    mate_missing_second_page = True
+                    logger(
+                        f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                    )
+                    mark_skip(mate_idx, "No page 2 art")
+
+            if folder and page1:
+                if base_idx is not None and base_idx < len(entries):
+                    assignments[base_idx] = page1
+                if mate_idx is not None and mate_idx < len(entries):
+                    if mate_missing_second_page:
+                        pass
+                    elif page2:
+                        assignments[mate_idx] = page2
+                    else:
+                        logger(
+                            f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}.")
+                        mark_skip(mate_idx, "Missing page2.pdf")
+            elif fallback_art and base_idx is not None and base_idx < len(entries):
+                if folder and not page1:
+                    logger(
+                        f"Warning: page1.pdf not found for {base_code} in {folder}; using standard art instead."
+                    )
+                assignments[base_idx] = fallback_art
+                logger(
+                    f"Using standard art for PO pair {base_code} because extracted pages are unavailable for mate {mate_label}."
+                )
+                if mate_idx is not None:
+                    mark_skip(mate_idx, "Missing extracted PO art")
+            else:
+                logger(
+                    f"Error: could not locate extracted folder for PO pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
+                )
+                for idx in indices:
+                    mark_skip(idx, "No PO art found")
 
     return assignments, skips, skip_reasons
