@@ -7,10 +7,10 @@ import fitz
 from order_gui import (
     find_template_file,
     prepare_flat_review_entries,
-    resolve_paired_page_art,
     resolve_print_output_folder,
     sanitize_filename_base,
 )
+from utils.po_art import resolve_paired_page_art
 
 
 class ResolvePairedPageArtTests(unittest.TestCase):
