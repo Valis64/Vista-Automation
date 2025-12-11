@@ -898,27 +898,29 @@ def move_art_to_folder(
     number of two-page PDFs that were split into page-specific files.
     """
 
-    if not os.path.isdir(order_dir):
-        return 0, 0, []
-
-    try:
-        entries = os.listdir(order_dir)
-    except Exception:
-        traceback.print_exc()
-        return 0, 0, []
-
-    art_dir = os.path.join(order_dir, "art")
-    moved_files = 0
-    zip_count = 0
-    temp_artifacts: list[str] = []
-    split_pairs = 0
-
     def log(text: str) -> None:
         if logger:
             try:
                 logger(text)
             except Exception:
                 traceback.print_exc()
+
+    if not os.path.isdir(order_dir):
+        log(f"Warning: order folder missing or unreadable: {order_dir}")
+        return 0, 0, [], 0
+
+    try:
+        entries = os.listdir(order_dir)
+    except Exception:
+        traceback.print_exc()
+        log(f"Warning: could not list order folder {order_dir}")
+        return 0, 0, [], 0
+
+    art_dir = os.path.join(order_dir, "art")
+    moved_files = 0
+    zip_count = 0
+    temp_artifacts: list[str] = []
+    split_pairs = 0
 
     def unique_path(base_dir: str, name: str) -> str:
         candidate = os.path.join(base_dir, name)
