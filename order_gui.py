@@ -261,7 +261,7 @@ def resolve_print_output_folder(
         return parent_name.endswith("_pages") or parent_name.endswith("_extracts")
 
     if is_po_template:
-        target_index = 2 if _is_extracted_page_path(path) else 1
+        target_index = 1
     else:
         target_index = 2 if is_p_template else 1
 
