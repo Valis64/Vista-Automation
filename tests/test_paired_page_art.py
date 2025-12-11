@@ -361,6 +361,38 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(info[0], expected_flat)
             self.assertEqual(info[-1], assignments[0])
 
+    def test_review_prefers_assigned_page_over_candidate_art(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assigned_page = os.path.join(tmp, "art_page1.pdf")
+            with open(assigned_page, "w", encoding="utf-8"):
+                pass
+
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": "Sample",
+                    "template": "PO001",
+                    "paper": "SBS",
+                    "order_id": "10001",
+                    "art_id": "POART",
+                    "glue": "",
+                    "lam": "",
+                    "art_path": os.path.join(tmp, "original.pdf"),
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                }
+            ]
+
+            assignments = {0: assigned_page}
+            flat_entries, _ = prepare_flat_review_entries(
+                candidates, assignments, [], diagnostic=False
+            )
+
+            self.assertEqual(len(flat_entries), 1)
+            _, _, info = flat_entries[0]
+            self.assertEqual(info[-1], assigned_page)
+
     def test_pb_templates_are_ignored_by_pairing(self):
         with tempfile.TemporaryDirectory() as tmp:
             art_pdf = os.path.join(tmp, "art.pdf")

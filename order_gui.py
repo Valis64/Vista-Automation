@@ -370,7 +370,7 @@ def prepare_flat_review_entries(
         if idx is None or idx in skip_set:
             continue
 
-        art_path = candidate.get("art_path") or assignments.get(idx, "")
+        art_path = assignments.get(idx, "") or candidate.get("art_path")
         if not art_path:
             continue
 
@@ -3842,6 +3842,11 @@ class App:
         target_pairs = self.batch_pairs if self.batch_pairs else self.pairs
 
         if not resolved_pairs or not target_pairs:
+            return
+
+        pair_frame = getattr(self, "pair_frame", None)
+        pair_vars = getattr(self, "pair_vars", None)
+        if not pair_frame or not pair_vars:
             return
 
         index_map = list(selected_indices) or list(range(len(resolved_pairs)))
