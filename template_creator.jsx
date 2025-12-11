@@ -1397,7 +1397,7 @@ function createClippingGroup(doc, bleedGroup) {
     }
 
     var grp = doc.groupItems.add();
-    for (var i = topLevelItems.length - 1; i >= 0; i--) {
+    for (var i = 0; i < topLevelItems.length; i++) {
         topLevelItems[i].move(grp, ElementPlacement.PLACEATEND);
     }
 
