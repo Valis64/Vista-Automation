@@ -1088,6 +1088,38 @@ function findBleedPath(doc, colorFn, createLayer) {
     return bleedGroup;
 }
 
+function bringBleedGroupToFront(bleedGroup) {
+    if (!bleedGroup) return false;
+    var moved = false;
+    try {
+        if (bleedGroup.layer && bleedGroup.layer.parent) {
+            bleedGroup.layer.move(bleedGroup.layer.parent, ElementPlacement.PLACEATBEGINNING);
+            moved = true;
+        } else if (bleedGroup.parent && bleedGroup.parent.typename === 'Layer' && bleedGroup.parent.parent) {
+            bleedGroup.parent.move(bleedGroup.parent.parent, ElementPlacement.PLACEATBEGINNING);
+            moved = true;
+        }
+    } catch (e) {}
+    try {
+        if (bleedGroup.zOrder) {
+            bleedGroup.zOrder(ZOrderMethod.BRINGTOFRONT);
+            moved = true;
+        }
+    } catch (e2) {}
+    if (bleedGroup.pageItems && bleedGroup.pageItems.length) {
+        for (var i = 0; i < bleedGroup.pageItems.length; i++) {
+            var it = bleedGroup.pageItems[i];
+            try {
+                if (it.zOrder) {
+                    it.zOrder(ZOrderMethod.BRINGTOFRONT);
+                    moved = true;
+                }
+            } catch (e3) {}
+        }
+    }
+    return moved;
+}
+
 function findTopBleedPath(doc, createLayer) {
     if (doc.pathItems.length === 0) return null;
     var bleedGroup;
@@ -1543,9 +1575,11 @@ function processPair(pair, index) {
     writeProgress('  Artwork loaded');
 
     var tmplName = pair.templateFile.name.toLowerCase();
+    var templateCodeUpper = pair.templateCode ? String(pair.templateCode).toUpperCase() : '';
     var isCD0434 = tmplName.indexOf('cd0434') !== -1;
     var isPB001 = tmplName.indexOf('pb001') !== -1;
     var isPB005 = tmplName.indexOf('pb005') !== -1;
+    var isPOTemplate = templateCodeUpper.indexOf('PO') === 0;
     var settings = loadTemplateSettings(pair.templateCode);
     var rawAlignment = (settings && typeof settings.alignment === 'string') ? settings.alignment : null;
     var alignment = normalizeAlignment(rawAlignment || 'center');
@@ -1566,6 +1600,15 @@ function processPair(pair, index) {
     if (!bleedGroup) alertAndExit('Bleed paths not found.');
     waitStep();
     writeProgress('  Bleed path located');
+
+    if (isPOTemplate) {
+        var lifted = bringBleedGroupToFront(bleedGroup);
+        if (lifted) {
+            writeProgress('  Raised bleed path to top for PO template before clipping');
+        } else {
+            writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
+        }
+    }
 
     writeProgress('Creating clipping mask');
     var clipGroup = createClippingGroup(artworkDoc, bleedGroup);
