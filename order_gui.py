@@ -1169,13 +1169,14 @@ def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = N
 
 def move_art_to_folder(
     order_dir: str, logger: Callable[[str], None] | None = None
-) -> tuple[int, int, list[str]]:
+) -> tuple[int, int, list[str], int]:
     """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns a tuple of ``(art_file_count, zip_count, temp_artifacts)``
-    representing the number of individual art files moved, the number of ZIP
-    archives extracted and relocated into the ``art`` subfolder, and any
-    temporary files created while preparing paired-page PDFs.
+    Returns a tuple of ``(art_file_count, zip_count, temp_artifacts,
+    split_pairs)`` representing the number of individual art files moved, the
+    number of ZIP archives extracted and relocated into the ``art`` subfolder,
+    any temporary files created while preparing paired-page PDFs, and the
+    number of two-page PDFs that were split into page-specific files.
     """
 
     if not os.path.isdir(order_dir):
@@ -1191,6 +1192,7 @@ def move_art_to_folder(
     moved_files = 0
     zip_count = 0
     temp_artifacts: list[str] = []
+    split_pairs = 0
 
     def log(text: str) -> None:
         if logger:
@@ -1276,10 +1278,11 @@ def move_art_to_folder(
         except Exception:
             traceback.print_exc()
 
-    def split_two_page_pdfs(folder: str) -> list[str]:
+    def split_two_page_pdfs(folder: str) -> tuple[list[str], int]:
         created: list[str] = []
+        paired_count = 0
         if not os.path.isdir(folder):
-            return created
+            return created, paired_count
         for dirpath, _, files in os.walk(folder):
             for name in files:
                 if not name.lower().endswith(".pdf"):
@@ -1295,6 +1298,7 @@ def move_art_to_folder(
                 try:
                     if doc.page_count != 2:
                         continue
+                    paired_count += 1
                     stem = Path(name).stem
                     for page_num in (0, 1):
                         dest = os.path.join(dirpath, f"{stem}_page{page_num + 1}.pdf")
@@ -1331,21 +1335,27 @@ def move_art_to_folder(
                         doc.close()
                     except Exception:
                         traceback.print_exc()
-        return created
+        return created, paired_count
 
-    temp_artifacts.extend(split_two_page_pdfs(art_dir))
+    split_temp, split_pairs = split_two_page_pdfs(art_dir)
+    temp_artifacts.extend(split_temp)
 
-    return moved_files, zip_count, temp_artifacts
+    return moved_files, zip_count, temp_artifacts, split_pairs
 
 
-def format_art_move_summary(art_files: int, zip_count: int) -> tuple[list[str], str | None]:
+def format_art_move_summary(
+    art_files: int, zip_count: int, split_pairs: int, split_files: int
+) -> tuple[list[str], str | None]:
     """Create human-readable status lines for art move results."""
 
     file_word = "file" if art_files == 1 else "files"
     archive_word = "archive" if zip_count == 1 else "archives"
+    split_word = "PDF" if split_pairs == 1 else "PDFs"
+    page_word = "page" if split_files == 1 else "pages"
     lines = [
         f"Moved {art_files} art {file_word} into art folders.",
         f"Extracted {zip_count} {archive_word} into dedicated folders.",
+        f"Detected and split {split_pairs} two-page {split_word} into {split_files} {page_word}.",
     ]
     warning = ".zip files were deleted after extraction." if zip_count else None
     return lines, warning
@@ -3868,8 +3878,11 @@ class App:
         items = self.items if self.items else self.batch_items
         moved_files = 0
         extracted_zips = 0
+        split_pairs = 0
+        split_files = 0
         seen: set[str] = set()
         temp_artifacts: list[str] = []
+        protected_artifacts: set[str] = set()
         try:
             for it in items:
                 order_id = str(it.get("order_id", self.order_id_var.get())).strip()
@@ -3877,11 +3890,15 @@ class App:
                     continue
                 seen.add(order_id)
                 order_dir = os.path.join(month_root, order_id)
-                files, zips, temps = move_art_to_folder(order_dir, logger=self.log_message)
+                files, zips, temps, pairs = move_art_to_folder(
+                    order_dir, logger=self.log_message
+                )
                 moved_files += files
                 extracted_zips += zips
                 temp_artifacts.extend(temps)
-            self._show_art_move_summary(moved_files, extracted_zips)
+                split_pairs += pairs
+                split_files += len(temps)
+            self._show_art_move_summary(moved_files, extracted_zips, split_pairs, split_files)
 
             items_src = self.batch_items if self.batch_items else self.items
             pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
@@ -3973,6 +3990,9 @@ class App:
                         self._apply_paired_page_results(
                             pairs_data, list(range(len(pairs_data)))
                         )
+                        for assigned in assignments.values():
+                            if assigned:
+                                protected_artifacts.add(assigned)
                         repopulated = True
 
                 if not repopulated:
@@ -4001,16 +4021,22 @@ class App:
                         if idx < len(self.emboss_vars):
                             self.emboss_vars[idx].set(value)
         finally:
-            self._cleanup_temp_artifacts(temp_artifacts)
+            self._cleanup_temp_artifacts(temp_artifacts, protected_artifacts)
 
-    def _cleanup_temp_artifacts(self, paths: Iterable[str]):
+    def _cleanup_temp_artifacts(
+        self, paths: Iterable[str], protected: Iterable[str] | None = None
+    ):
         """Delete temporary paired-page artifacts created during art moves."""
 
+        protected_set = {os.path.abspath(p) for p in protected or [] if p}
         for path in paths:
             if not path:
                 continue
             try:
                 if os.path.isdir(path):
+                    continue
+                abs_path = os.path.abspath(path)
+                if abs_path in protected_set:
                     continue
                 if os.path.exists(path):
                     os.remove(path)
@@ -4022,8 +4048,10 @@ class App:
                     f"Warning: could not remove temporary paired art file {path}: {exc}"
                 )
 
-    def _show_art_move_summary(self, art_files: int, zip_count: int):
-        lines, warning = format_art_move_summary(art_files, zip_count)
+    def _show_art_move_summary(
+        self, art_files: int, zip_count: int, split_pairs: int, split_files: int
+    ):
+        lines, warning = format_art_move_summary(art_files, zip_count, split_pairs, split_files)
         win = tk.Toplevel(self.root)
         win.title("Extract & Move Art")
         win.transient(self.root)
