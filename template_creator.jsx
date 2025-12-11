@@ -1088,6 +1088,47 @@ function findBleedPath(doc, colorFn, createLayer) {
     return bleedGroup;
 }
 
+function bringBleedGroupToFront(bleedGroup) {
+    var result = { moved: false, group: bleedGroup };
+    if (!bleedGroup) return result;
+
+    var doc = bleedGroup;
+    while (doc && doc.typename !== 'Document' && doc.parent) {
+        doc = doc.parent;
+    }
+    if (!doc || doc.typename !== 'Document') return result;
+
+    var bleedSpot = findBleedSpot(doc);
+    var topLayer = doc.layers.add();
+    topLayer.name = 'Bleed_Top_Layer';
+    try { topLayer.move(doc, ElementPlacement.PLACEATBEGINNING); } catch (e) {}
+    var topGroup = topLayer.groupItems.add();
+
+    if (bleedGroup.pageItems && bleedGroup.pageItems.length) {
+        for (var i = 0; i < bleedGroup.pageItems.length; i++) {
+            var it = bleedGroup.pageItems[i];
+            var usesBleed = false;
+            try {
+                usesBleed = usesBleedSpot(it.strokeColor, bleedSpot) || usesBleedSpot(it.fillColor, bleedSpot);
+            } catch (e2) {}
+            if (!usesBleed && it.name && it.name.toLowerCase() === 'bleed') usesBleed = true;
+            if (!usesBleed) continue;
+            try {
+                it.move(topGroup, ElementPlacement.PLACEATEND);
+                result.moved = true;
+            } catch (e3) {}
+        }
+    }
+
+    if (result.moved && topGroup.pageItems.length) {
+        result.group = topGroup;
+    } else {
+        try { topLayer.remove(); } catch (e4) {}
+    }
+
+    return result;
+}
+
 function findTopBleedPath(doc, createLayer) {
     if (doc.pathItems.length === 0) return null;
     var bleedGroup;
@@ -1543,9 +1584,11 @@ function processPair(pair, index) {
     writeProgress('  Artwork loaded');
 
     var tmplName = pair.templateFile.name.toLowerCase();
+    var templateCodeUpper = pair.templateCode ? String(pair.templateCode).toUpperCase() : '';
     var isCD0434 = tmplName.indexOf('cd0434') !== -1;
     var isPB001 = tmplName.indexOf('pb001') !== -1;
     var isPB005 = tmplName.indexOf('pb005') !== -1;
+    var isPOTemplate = templateCodeUpper.indexOf('PO') === 0;
     var settings = loadTemplateSettings(pair.templateCode);
     var rawAlignment = (settings && typeof settings.alignment === 'string') ? settings.alignment : null;
     var alignment = normalizeAlignment(rawAlignment || 'center');
@@ -1566,6 +1609,16 @@ function processPair(pair, index) {
     if (!bleedGroup) alertAndExit('Bleed paths not found.');
     waitStep();
     writeProgress('  Bleed path located');
+
+    if (isPOTemplate) {
+        var liftResult = bringBleedGroupToFront(bleedGroup);
+        if (liftResult && liftResult.moved) {
+            bleedGroup = liftResult.group || bleedGroup;
+            writeProgress('  Raised bleed path to top for PO template before clipping');
+        } else {
+            writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
+        }
+    }
 
     writeProgress('Creating clipping mask');
     var clipGroup = createClippingGroup(artworkDoc, bleedGroup);
