@@ -1089,35 +1089,44 @@ function findBleedPath(doc, colorFn, createLayer) {
 }
 
 function bringBleedGroupToFront(bleedGroup) {
-    if (!bleedGroup) return false;
-    var moved = false;
-    try {
-        if (bleedGroup.layer && bleedGroup.layer.parent) {
-            bleedGroup.layer.move(bleedGroup.layer.parent, ElementPlacement.PLACEATBEGINNING);
-            moved = true;
-        } else if (bleedGroup.parent && bleedGroup.parent.typename === 'Layer' && bleedGroup.parent.parent) {
-            bleedGroup.parent.move(bleedGroup.parent.parent, ElementPlacement.PLACEATBEGINNING);
-            moved = true;
-        }
-    } catch (e) {}
-    try {
-        if (bleedGroup.zOrder) {
-            bleedGroup.zOrder(ZOrderMethod.BRINGTOFRONT);
-            moved = true;
-        }
-    } catch (e2) {}
+    var result = { moved: false, group: bleedGroup };
+    if (!bleedGroup) return result;
+
+    var doc = bleedGroup;
+    while (doc && doc.typename !== 'Document' && doc.parent) {
+        doc = doc.parent;
+    }
+    if (!doc || doc.typename !== 'Document') return result;
+
+    var bleedSpot = findBleedSpot(doc);
+    var topLayer = doc.layers.add();
+    topLayer.name = 'Bleed_Top_Layer';
+    try { topLayer.move(doc, ElementPlacement.PLACEATBEGINNING); } catch (e) {}
+    var topGroup = topLayer.groupItems.add();
+
     if (bleedGroup.pageItems && bleedGroup.pageItems.length) {
         for (var i = 0; i < bleedGroup.pageItems.length; i++) {
             var it = bleedGroup.pageItems[i];
+            var usesBleed = false;
             try {
-                if (it.zOrder) {
-                    it.zOrder(ZOrderMethod.BRINGTOFRONT);
-                    moved = true;
-                }
+                usesBleed = usesBleedSpot(it.strokeColor, bleedSpot) || usesBleedSpot(it.fillColor, bleedSpot);
+            } catch (e2) {}
+            if (!usesBleed && it.name && it.name.toLowerCase() === 'bleed') usesBleed = true;
+            if (!usesBleed) continue;
+            try {
+                it.move(topGroup, ElementPlacement.PLACEATEND);
+                result.moved = true;
             } catch (e3) {}
         }
     }
-    return moved;
+
+    if (result.moved && topGroup.pageItems.length) {
+        result.group = topGroup;
+    } else {
+        try { topLayer.remove(); } catch (e4) {}
+    }
+
+    return result;
 }
 
 function findTopBleedPath(doc, createLayer) {
@@ -1602,8 +1611,9 @@ function processPair(pair, index) {
     writeProgress('  Bleed path located');
 
     if (isPOTemplate) {
-        var lifted = bringBleedGroupToFront(bleedGroup);
-        if (lifted) {
+        var liftResult = bringBleedGroupToFront(bleedGroup);
+        if (liftResult && liftResult.moved) {
+            bleedGroup = liftResult.group || bleedGroup;
             writeProgress('  Raised bleed path to top for PO template before clipping');
         } else {
             writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
