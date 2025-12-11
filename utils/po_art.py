@@ -185,7 +185,7 @@ def _build_pair_map(entries: Sequence[dict], limit: int) -> dict[str, list[dict[
 
         if is_mate:
             placed = False
-            for info in bucket:
+            for info in reversed(bucket):
                 if info.get("mate") is None and info.get("base") is not None:
                     info["mate"] = idx
                     placed = True
