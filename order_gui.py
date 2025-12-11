@@ -3898,6 +3898,28 @@ class App:
         )
         self.update_checklist_count(count)
 
+    def _prune_pending_review(self, skip_set: set[int]) -> None:
+        """Drop pending flat review entries whose pairs were skipped."""
+
+        if not skip_set or not self.pending_flat_pairs or not self.pending_flat_info:
+            return
+
+        filtered_pairs: list[int] = []
+        filtered_info: list[
+            tuple[str, str, int, str, str, str, str, str] | None
+        ] = []
+
+        for pair_idx, info in zip(self.pending_flat_pairs, self.pending_flat_info):
+            if pair_idx in skip_set:
+                continue
+            filtered_pairs.append(pair_idx)
+            filtered_info.append(info)
+
+        if len(filtered_pairs) != len(self.pending_flat_pairs):
+            self.pending_flat_pairs = filtered_pairs
+            self.pending_flat_info = filtered_info
+            self.pending_flat_paths = [info[0] for info in filtered_info if info]
+
     def move_art_to_art_folders(self):
         """Extract ZIPs and move art files into per-order ``art`` folders."""
         month_root = self.month_dir_var.get().strip()
@@ -4016,6 +4038,7 @@ class App:
                                     items_src[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
                             pairs_data.append(updated)
 
+                        self._prune_pending_review(skip_set)
                         self._apply_paired_page_results(
                             pairs_data, list(range(len(pairs_data)))
                         )
