@@ -455,11 +455,37 @@ function buildOptions(data) {
         return { name: name, color: [0,0,0] };
     }
 
+    function getSkipReason(pair, item) {
+        if (pair && (pair.skip_reason || pair.skipReason)) {
+            return pair.skip_reason || pair.skipReason || '';
+        }
+        if (item && (item.skip_reason || item.skipReason)) {
+            return item.skip_reason || item.skipReason || '';
+        }
+        return '';
+    }
+
     for (var i=0; i<pairsInfo.length; i++) {
         var pair = pairsInfo[i] || {};
         var item = items[i] || {};
 
         if (isSkipped(pair) || isSkipped(item)) {
+            out.push({
+                skip: true,
+                skipReason: getSkipReason(pair, item),
+                laminate: getLamOption(pair.lamType || item.lamType),
+                paper: pair.paperType || item.paperType || '',
+                orderData: {
+                    info: item.info || '',
+                    gluetab: item.gluetab || '',
+                    filename: item.filename || '',
+                    lamType: pair.lamType || item.lamType || '',
+                    paperType: pair.paperType || item.paperType || ''
+                },
+                artFile: pair.art_path ? File(pair.art_path) : null,
+                templateFile: pair.template_path ? File(pair.template_path) : null,
+                templateCode: pair.template || item.templateName || ''
+            });
             continue;
         }
 
@@ -1487,6 +1513,29 @@ function main() {
             var pair = opts.pairs[p];
             var summaryItem = null;
             var err = null;
+
+            if (pair && pair.skip) {
+                var skipReason = pair.skipReason || '';
+                writeProgress('Skipping pair ' + (p + 1) + (skipReason ? ': ' + skipReason : ''));
+                summaryItem = {
+                    pair: p + 1,
+                    art: pair.artFile ? pair.artFile.name : (pair.orderData && pair.orderData.filename ? pair.orderData.filename : ''),
+                    template: pair.templateFile ? pair.templateFile.name : '',
+                    info: skipReason ? 'Skipped: ' + skipReason : 'Skipped',
+                    gluetab: pair.orderData ? (pair.orderData.gluetab || '') : '',
+                    laminate: pair.laminate && pair.laminate.name ? pair.laminate.name : '',
+                    paper: pair.paper || '',
+                    lines: '',
+                    flat: '',
+                    artPath: pair.artFile ? pair.artFile.fsName : '',
+                    templatePath: pair.templateFile ? pair.templateFile.fsName : '',
+                    filename: pair.orderData ? (pair.orderData.filename || '') : '',
+                    skip: true
+                };
+                summaryItems.push(summaryItem);
+                continue;
+            }
+
             for (var attempt = 0; attempt < 3; attempt++) {
                 checkStop();
                 try {
@@ -1518,6 +1567,12 @@ function main() {
     summary += '\n\n';
     for (var si = 0; si < summaryItems.length; si++) {
         var it = summaryItems[si];
+        if (it.skip) {
+            summary += 'Pair ' + it.pair + ': SKIPPED';
+            if (it.info) summary += ' - ' + it.info;
+            summary += '\n\n';
+            continue;
+        }
         summary += 'Pair ' + it.pair + ': ' + it.art + ' -> ' + it.template + '\n';
         summary += '  Info: ' + it.info + '\n';
         summary += '  GlueTab: ' + it.gluetab + '\n';
