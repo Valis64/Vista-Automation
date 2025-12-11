@@ -340,6 +340,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 assignments,
                 skips,
                 diagnostic=False,
+                selected_indices=[0],
             )
 
             self.assertFalse(sample_entries)
@@ -581,6 +582,46 @@ class ResolvePairedPageArtTests(unittest.TestCase):
 
             self.assertCountEqual(resolved_paths, expected_paths)
             self.assertEqual(len(set(resolved_paths)), 2)
+
+    def test_flat_entries_preserve_original_indices(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            selected_indices = [5, 7, 9]
+            candidates: list[dict] = []
+            for i, original_idx in enumerate(selected_indices):
+                art_path = os.path.join(tmp, f"art_{i}.pdf")
+                with open(art_path, "w", encoding="utf-8"):
+                    pass
+
+                candidates.append(
+                    {
+                        "idx": original_idx,
+                        "filename_base": f"file-{i}",
+                        "template": "PO1",
+                        "paper": "SBS",
+                        "order_id": "50001",
+                        "art_id": f"ART{i}",
+                        "glue": "",
+                        "lam": "",
+                        "art_path": art_path,
+                        "template_path": "",
+                        "sample": False,
+                        "cut_src": "",
+                    }
+                )
+
+            flat_entries, _ = prepare_flat_review_entries(
+                candidates,
+                assignments={},
+                skip_indices={1},
+                diagnostic=False,
+                selected_indices=selected_indices,
+            )
+
+            returned_indices = [idx for idx, _, _ in flat_entries]
+            pair_numbers = [info[2] for _, _, info in flat_entries]
+
+            self.assertEqual(returned_indices, [selected_indices[0], selected_indices[2]])
+            self.assertEqual(pair_numbers, [selected_indices[0] + 1, selected_indices[2] + 1])
 
 
 if __name__ == "__main__":
