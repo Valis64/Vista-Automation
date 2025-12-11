@@ -351,13 +351,20 @@ def prepare_flat_review_entries(
     skip_indices: Iterable[int],
     *,
     diagnostic: bool,
+    selected_indices: Sequence[int] | None = None,
 ) -> tuple[
     list[tuple[int, str, tuple[str, str, int, str, str, str, str, str]]],
     list[tuple[int, str, str]],
 ]:
     """Build flat-review metadata using resolved art assignments."""
 
-    skip_set = set(skip_indices)
+    index_map = list(selected_indices or [])
+    if not index_map:
+        index_map = [c.get("idx", i) for i, c in enumerate(candidates)]
+
+    skip_set = {
+        index_map[i] for i in skip_indices if 0 <= i < len(index_map)
+    }
     flat_entries: list[
         tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
     ] = []
@@ -365,12 +372,15 @@ def prepare_flat_review_entries(
     order_counts: dict[str, int] = {}
     used_flat_paths: set[str] = set()
 
-    for candidate in candidates:
+    for local_idx, candidate in enumerate(candidates):
         idx = candidate.get("idx")
-        if idx is None or idx in skip_set:
+        if idx is None:
+            idx = index_map[local_idx] if local_idx < len(index_map) else local_idx
+
+        if idx in skip_set:
             continue
 
-        art_path = assignments.get(idx, "") or candidate.get("art_path")
+        art_path = assignments.get(local_idx, "") or candidate.get("art_path")
         if not art_path:
             continue
 
@@ -413,7 +423,7 @@ def prepare_flat_review_entries(
             if resolved_name:
                 flat_path = os.path.join(print_folder, resolved_name)
                 used_flat_paths.add(resolved_name)
-        seq_for_info = order_counts.get(order_id, sequence if sequence else 0)
+        seq_for_info = idx + 1
 
         info = (
             flat_path,
@@ -1934,7 +1944,7 @@ class App:
         self.pending_flat_info: list[
             tuple[str, str, int, str, str, str, str, str]
         ] = []
-        # (flat path, order id, pair #, art id, gluetab, template, laminate, art path)
+        # (flat path, order id, original pair #, art id, gluetab, template, laminate, art path)
 
         settings = load_settings()
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
@@ -3615,6 +3625,11 @@ class App:
 
         for idx, it in enumerate(items):
             pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
+            pair_idx = (
+                selected_indices[idx]
+                if idx < len(selected_indices)
+                else len(raw_pairs)
+            )
             art_id = pair.get("art_id", "")
             template = pair.get("template", "")
             art_root = it.get("art_dir", self.art_dir_var.get())
@@ -3631,9 +3646,9 @@ class App:
             skip_flag = bool(pair.get("skip"))
             skip_reason = pair.get("skip_reason", "")
             if skip_flag:
-                initial_skip_indices.add(idx)
+                initial_skip_indices.add(pair_idx)
                 if skip_reason:
-                    initial_skip_reasons[idx] = skip_reason
+                    initial_skip_reasons[pair_idx] = skip_reason
             raw_pairs.append(
                 {
                     "art_id": art_id,
@@ -3663,19 +3678,28 @@ class App:
             raw_pairs, pair_contexts, self.log_message
         )
 
-        skip_set = set(skip_indices) | initial_skip_indices
-        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
+        index_map = list(selected_indices)
+        skip_set = {
+            index_map[i] for i in skip_indices if 0 <= i < len(index_map)
+        } | initial_skip_indices
+        combined_skip_reasons = {
+            **{index_map[i]: reason for i, reason in skip_reasons.items() if i < len(index_map)},
+            **initial_skip_reasons,
+        }
         pairs_data: list[dict] = []
         for idx, entry in enumerate(raw_pairs):
+            pair_idx = index_map[idx] if idx < len(index_map) else idx
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
-            if idx in skip_set:
+            if pair_idx in skip_set:
                 updated["skip"] = True
-                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
-                if idx < len(items):
-                    items[idx]["skip"] = True
-                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+                updated["skip_reason"] = combined_skip_reasons.get(pair_idx, "")
+                if pair_idx < len(items):
+                    items[pair_idx]["skip"] = True
+                    items[pair_idx]["skip_reason"] = combined_skip_reasons.get(
+                        pair_idx, ""
+                    )
             pairs_data.append(updated)
 
         self._apply_paired_page_results(pairs_data, selected_indices)
@@ -4488,7 +4512,11 @@ class App:
             art_root = it.get("art_dir", self.art_dir_var.get())
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
-            pair_idx = len(raw_pairs)
+            pair_idx = (
+                selected_indices[idx]
+                if idx < len(selected_indices)
+                else len(raw_pairs)
+            )
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             qty = get_item_quantity(it)
             sample = qty == 11
@@ -4556,20 +4584,29 @@ class App:
             raw_pairs, pair_contexts, self.log_message
         )
 
-        skip_set = set(skip_indices) | initial_skip_indices
-        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
+        index_map = list(selected_indices)
+        skip_set = {
+            index_map[i] for i in skip_indices if 0 <= i < len(index_map)
+        } | initial_skip_indices
+        combined_skip_reasons = {
+            **{index_map[i]: reason for i, reason in skip_reasons.items() if i < len(index_map)},
+            **initial_skip_reasons,
+        }
         pairs_data: list[dict] = []
         pair_orders: list[str] = []
         for idx, entry in enumerate(raw_pairs):
+            pair_idx = index_map[idx] if idx < len(index_map) else idx
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
-            if idx in skip_set:
+            if pair_idx in skip_set:
                 updated["skip"] = True
-                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
-                if idx < len(items):
-                    items[idx]["skip"] = True
-                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+                updated["skip_reason"] = combined_skip_reasons.get(pair_idx, "")
+                if pair_idx < len(items):
+                    items[pair_idx]["skip"] = True
+                    items[pair_idx]["skip_reason"] = combined_skip_reasons.get(
+                        pair_idx, ""
+                    )
             pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
@@ -4579,6 +4616,7 @@ class App:
             assignments,
             skip_indices,
             diagnostic=self.diagnostic_var.get(),
+            selected_indices=selected_indices,
         )
 
         self.sample_copy_info.extend(
