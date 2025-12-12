@@ -1837,7 +1837,7 @@ function processPair(pair, index) {
             isPTemplate = true;
         }
     }
-    var destRoot = getAncestorFolder(pair.artFile, isPTemplate ? 2 : 1);
+    var destRoot = getAncestorFolder(pair.artFile, 1);
     if (destRoot && !(destRoot instanceof Folder)) {
         destRoot = new Folder(destRoot);
     }

@@ -264,7 +264,7 @@ def resolve_print_output_folder(
     if is_po_template:
         target_index = 2 if _is_extracted_page_path(path) else 1
     else:
-        target_index = 2 if is_p_template else 1
+        target_index = 1
 
     try:
         root = parents[target_index]
