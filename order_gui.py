@@ -891,10 +891,10 @@ def move_art_to_folder(
 ) -> tuple[int, int, list[str], int]:
     """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns a tuple of ``(art_file_count, zip_count, temp_artifacts,
+    Returns a tuple of ``(art_file_count, zip_count, split_artifacts,
     split_pairs)`` representing the number of individual art files moved, the
     number of ZIP archives extracted and relocated into the ``art`` subfolder,
-    any temporary files created while preparing paired-page PDFs, and the
+    the paired-page PDF outputs created while preparing two-page PDFs, and the
     number of two-page PDFs that were split into page-specific files.
     """
 
@@ -919,7 +919,7 @@ def move_art_to_folder(
     art_dir = os.path.join(order_dir, "art")
     moved_files = 0
     zip_count = 0
-    temp_artifacts: list[str] = []
+    split_artifacts: list[str] = []
     split_pairs = 0
 
     def unique_path(base_dir: str, name: str) -> str:
@@ -1058,10 +1058,10 @@ def move_art_to_folder(
                         traceback.print_exc()
         return created, paired_count
 
-    split_temp, split_pairs = split_two_page_pdfs(art_dir)
-    temp_artifacts.extend(split_temp)
+    split_outputs, split_pairs = split_two_page_pdfs(art_dir)
+    split_artifacts.extend(split_outputs)
 
-    return moved_files, zip_count, temp_artifacts, split_pairs
+    return moved_files, zip_count, split_artifacts, split_pairs
 
 
 def format_art_move_summary(
@@ -3607,7 +3607,7 @@ class App:
         split_pairs = 0
         split_files = 0
         seen: set[str] = set()
-        temp_artifacts: list[str] = []
+        split_artifacts: list[str] = []
         protected_artifacts: set[str] = set()
         try:
             for it in items:
@@ -3621,7 +3621,7 @@ class App:
                 )
                 moved_files += files
                 extracted_zips += zips
-                temp_artifacts.extend(temps)
+                split_artifacts.extend(temps)
                 split_pairs += pairs
                 split_files += len(temps)
             self._show_art_move_summary(moved_files, extracted_zips, split_pairs, split_files)
@@ -3747,12 +3747,16 @@ class App:
                         if idx < len(self.emboss_vars):
                             self.emboss_vars[idx].set(value)
         finally:
-            self._cleanup_temp_artifacts(temp_artifacts, protected_artifacts)
+            self._cleanup_temp_artifacts(split_artifacts, protected_artifacts)
 
     def _cleanup_temp_artifacts(
         self, paths: Iterable[str], protected: Iterable[str] | None = None
     ):
-        """Delete temporary paired-page artifacts created during art moves."""
+        """Delete temporary paired-page artifacts created during art moves.
+
+        Any split page files ending in ``_page1.pdf`` or ``_page2.pdf`` are
+        treated as permanent outputs and will not be removed.
+        """
 
         protected_set = {os.path.abspath(p) for p in protected or [] if p}
         for path in paths:
@@ -3763,6 +3767,9 @@ class App:
                     continue
                 abs_path = os.path.abspath(path)
                 if abs_path in protected_set:
+                    continue
+                name_lower = os.path.basename(path).lower()
+                if name_lower.endswith("_page1.pdf") or name_lower.endswith("_page2.pdf"):
                     continue
                 if os.path.exists(path):
                     os.remove(path)
