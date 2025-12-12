@@ -2,14 +2,15 @@ import os
 import tempfile
 import unittest
 from unittest.mock import patch
+import fitz
 
 from order_gui import (
     find_template_file,
     prepare_flat_review_entries,
-    resolve_paired_page_art,
     resolve_print_output_folder,
     sanitize_filename_base,
 )
+from utils.po_art import resolve_paired_page_art
 
 
 class ResolvePairedPageArtTests(unittest.TestCase):
@@ -29,8 +30,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART001"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
-            page2 = os.path.join(folder, "page2.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            page2 = os.path.join(folder, f"{art_id}_page2.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
             with open(page2, "w", encoding="utf-8"):
@@ -46,11 +47,14 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
             self.assertTrue(any("Resolved zip folder" in msg for msg in logs))
 
     def test_missing_page_skips_side(self):
@@ -59,7 +63,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART002"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
 
@@ -73,10 +77,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
             self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
 
     def test_missing_mate_logs_warning(self):
@@ -85,7 +92,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART003"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "page1.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
             with open(page1, "w", encoding="utf-8"):
                 pass
 
@@ -93,10 +100,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             contexts = [self._build_context(art_id, order_id, tmp)]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
             self.assertTrue(any("missing mate template" in msg for msg in logs))
 
     def test_case_insensitive_page_names(self):
@@ -105,8 +115,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             art_id = "ART004"
             folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(folder, exist_ok=True)
-            page1 = os.path.join(folder, "PaGe1.PDF")
-            page2 = os.path.join(folder, "PAGE2.PDF")
+            page1 = os.path.join(folder, f"{art_id}_PaGe1.PDF")
+            page2 = os.path.join(folder, f"{art_id}_PAGE2.PDF")
             with open(page1, "w", encoding="utf-8"):
                 pass
             with open(page2, "w", encoding="utf-8"):
@@ -122,11 +132,142 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertEqual(assignments.get(0), page1)
             self.assertEqual(assignments.get(1), page2)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_prefers_stemmed_pages_when_legacy_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "55555"
+            art_id = "ARTPREF"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            preferred_page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            preferred_page2 = os.path.join(folder, f"{art_id}_page2.pdf")
+            legacy_page1 = os.path.join(folder, "page1.pdf")
+            legacy_page2 = os.path.join(folder, "page2.pdf")
+            for path in (preferred_page1, preferred_page2, legacy_page1, legacy_page2):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            entries = [
+                {"template": "PO7", "art_path": ""},
+                {"template": "PO7B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), preferred_page1)
+            self.assertEqual(assignments.get(1), preferred_page2)
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_legacy_page_names_are_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "77778"
+            art_id = "ARTLEG"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            page1 = os.path.join(folder, "page1.pdf")
+            page2 = os.path.join(folder, "page2.pdf")
+            for path in (page1, page2):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            entries = [
+                {"template": "POX", "art_path": ""},
+                {"template": "POXB", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), page1)
+            self.assertEqual(assignments.get(1), page2)
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_missing_pob_art_uses_base_art_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "65000"
+            art_id = "BASE001"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            with open(base_art, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO20", "art_path": base_art},
+                {"template": "PO20B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, base_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertNotIn(1, assignments)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing extracted PO art")
+            self.assertTrue(
+                any("Using standard art for PO pair" in msg for msg in logs)
+            )
+
+    def test_single_page_pdf_skips_mate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70001"
+            art_id = "SINGLEPAGE"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            doc = fitz.open()
+            try:
+                doc.new_page()
+                doc.save(base_art)
+            finally:
+                doc.close()
+
+            entries = [
+                {"template": "PO21", "art_path": base_art},
+                {"template": "PO21B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, base_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "No page 2 art")
+            self.assertTrue(
+                any("has only 1 page" in msg for msg in logs),
+                msg=f"Logs missing warning: {logs}",
+            )
 
     def test_find_template_prefers_exact_template_code(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -146,11 +287,11 @@ class ResolvePairedPageArtTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "90001"
             art_id = "ART900"
-            template = "P15"
+            template = "PO15"
             art_folder = os.path.join(tmp, order_id, "art", art_id)
             os.makedirs(art_folder, exist_ok=True)
-            page1 = os.path.join(art_folder, "page1.pdf")
-            page2 = os.path.join(art_folder, "page2.pdf")
+            page1 = os.path.join(art_folder, f"{art_id}_page1.pdf")
+            page2 = os.path.join(art_folder, f"{art_id}_page2.pdf")
             for path in (page1, page2):
                 with open(path, "w", encoding="utf-8"):
                     pass
@@ -168,10 +309,13 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertIn(0, assignments)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
 
             filename_base = sanitize_filename_base("Sample File")
             candidates = [
@@ -217,6 +361,38 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(info[0], expected_flat)
             self.assertEqual(info[-1], assignments[0])
 
+    def test_review_prefers_assigned_page_over_candidate_art(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            assigned_page = os.path.join(tmp, "art_page1.pdf")
+            with open(assigned_page, "w", encoding="utf-8"):
+                pass
+
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": "Sample",
+                    "template": "PO001",
+                    "paper": "SBS",
+                    "order_id": "10001",
+                    "art_id": "POART",
+                    "glue": "",
+                    "lam": "",
+                    "art_path": os.path.join(tmp, "original.pdf"),
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                }
+            ]
+
+            assignments = {0: assigned_page}
+            flat_entries, _ = prepare_flat_review_entries(
+                candidates, assignments, [], diagnostic=False
+            )
+
+            self.assertEqual(len(flat_entries), 1)
+            _, _, info = flat_entries[0]
+            self.assertEqual(info[-1], assigned_page)
+
     def test_pb_templates_are_ignored_by_pairing(self):
         with tempfile.TemporaryDirectory() as tmp:
             art_pdf = os.path.join(tmp, "art.pdf")
@@ -236,10 +412,26 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips = resolve_paired_page_art(entries, contexts, logs.append)
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
 
             self.assertFalse(assignments)
             self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
+    def test_non_po_templates_are_ignored_by_pairing(self):
+        entries = [{"template": "P15", "art_path": ""}]
+        contexts = [self._build_context("ARTNONPO", "10002", "/tmp")]
+        logs: list[str] = []
+
+        assignments, skips, skip_reasons = resolve_paired_page_art(
+            entries, contexts, logs.append
+        )
+
+        self.assertFalse(assignments)
+        self.assertFalse(skips)
+        self.assertFalse(skip_reasons)
 
     def test_flat_entries_resolve_existing_flat_filename_for_p_templates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,7 +444,12 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             with open(art_path, "w", encoding="utf-8"):
                 pass
 
-            print_dir = os.path.join(tmp, "print")
+            print_dir = resolve_print_output_folder(
+                art_path,
+                template,
+                "",
+                diagnostic=False,
+            )
             os.makedirs(print_dir, exist_ok=True)
             actual_name = (
                 "36349 - McKenzie Crest Inc. - Justin - "

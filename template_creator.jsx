@@ -53,6 +53,7 @@ var PROGRESS_FILE = 'jsx_progress.txt';
 var PAUSE_FILE = 'jsx_pause.flag';
 var CANCEL_FILE = 'jsx_cancel.flag';
 var SUMMARY_ARTIFACT = 'last_run.json';
+var BLEED_FAILSAFE_SETTINGS = loadBleedFailSafeSettings();
 
 var CANCEL_REQUESTED = false;
 
@@ -97,6 +98,41 @@ function loadTemplateSettings(code) {
     f.close();
     var obj = parseJSON(txt);
     return obj || {};
+}
+
+function loadBleedFailSafeSettings() {
+    var fallback = { defaultRotation: 0, templates: {} };
+    var scriptDir = File($.fileName).parent;
+    var f = File(scriptDir + '/template_settings/BleedFailSafeSettings.json');
+    if (!f.exists) return fallback;
+    f.encoding = 'UTF-8';
+    if (!f.open('r')) return fallback;
+    var txt = f.read();
+    f.close();
+    var obj = parseJSON(txt);
+    if (!obj || typeof obj !== 'object') return fallback;
+    var normalized = { defaultRotation: obj.defaultRotation, templates: {} };
+    var templates = obj.templates || {};
+    if (templates && typeof templates === 'object') {
+        for (var key in templates) {
+            if (!templates.hasOwnProperty(key)) continue;
+            var value = templates[key];
+            if (value && typeof value === 'object') {
+                normalized.templates[key] = value;
+                if (!normalized.templates[key].dieName) normalized.templates[key].dieName = key;
+                if (!normalized.templates[key].templateCode) normalized.templates[key].templateCode = key;
+            } else if (typeof value === 'number') {
+                normalized.templates[key] = { dieName: key, templateCode: key, rotation: value };
+            }
+        }
+    }
+    if (typeof obj.defaultRotation === 'number') {
+        normalized.defaultRotation = obj.defaultRotation;
+    } else if (typeof obj.rotation === 'number') {
+        normalized.defaultRotation = obj.rotation;
+    }
+    if (typeof normalized.defaultRotation !== 'number') normalized.defaultRotation = 0;
+    return normalized;
 }
 
 var LAM_OPTIONS = [
@@ -253,7 +289,9 @@ function writeSummaryArtifact(folder, items) {
                 ' "template": "' + jsonEscape(it.template) + '",' +
                 ' "template_path": "' + jsonEscape(it.templatePath || '') + '",' +
                 ' "filename": "' + jsonEscape(it.filename || '') + '",' +
-                ' "flat": "' + jsonEscape(it.flat) + '"' +
+                ' "flat": "' + jsonEscape(it.flat) + '",' +
+                ' "skip": ' + (it.skip ? 'true' : 'false') + ',' +
+                ' "skip_reason": "' + jsonEscape(it.info && it.skip ? it.info : '') + '"' +
             ' }' + (i === items.length - 1 ? '' : ','));
         }
         lines.push('  ]');
@@ -402,6 +440,12 @@ function buildOptions(data) {
     var pairsInfo = data.pairs || [];
     var out = [];
 
+    function isSkipped(entry) {
+        if (!entry) return false;
+        var flag = entry.skip;
+        return flag === true || flag === 'true' || flag === 1 || flag === '1';
+    }
+
     function getLamOption(name) {
         if (!name) return { name: '', color: [0,0,0] };
         var lower = String(name).toLowerCase();
@@ -413,9 +457,40 @@ function buildOptions(data) {
         return { name: name, color: [0,0,0] };
     }
 
+    function getSkipReason(pair, item) {
+        if (pair && (pair.skip_reason || pair.skipReason)) {
+            return pair.skip_reason || pair.skipReason || '';
+        }
+        if (item && (item.skip_reason || item.skipReason)) {
+            return item.skip_reason || item.skipReason || '';
+        }
+        return '';
+    }
+
     for (var i=0; i<pairsInfo.length; i++) {
         var pair = pairsInfo[i] || {};
         var item = items[i] || {};
+
+        if (isSkipped(pair) || isSkipped(item)) {
+            out.push({
+                skip: true,
+                skipReason: getSkipReason(pair, item),
+                laminate: getLamOption(pair.lamType || item.lamType),
+                paper: pair.paperType || item.paperType || '',
+                orderData: {
+                    info: item.info || '',
+                    gluetab: item.gluetab || '',
+                    filename: item.filename || '',
+                    lamType: pair.lamType || item.lamType || '',
+                    paperType: pair.paperType || item.paperType || ''
+                },
+                artFile: pair.art_path ? File(pair.art_path) : null,
+                templateFile: pair.template_path ? File(pair.template_path) : null,
+                templateCode: pair.template || item.templateName || ''
+            });
+            continue;
+        }
+
         var lam = getLamOption(pair.lamType || item.lamType);
         var paper = pair.paperType || item.paperType || '';
         out.push({
@@ -936,6 +1011,51 @@ function findBleedSpot(doc) {
     return null;
 }
 
+function ensureBleedSpot(doc) {
+    if (!doc) return null;
+    var bleed = findBleedSpot(doc);
+    if (!bleed) {
+        bleed = doc.spots.add();
+        bleed.name = 'Bleed';
+        bleed.colorType = ColorModel.SPOT;
+    }
+    var cmyk = new CMYKColor();
+    cmyk.cyan = 0;
+    cmyk.magenta = 100;
+    cmyk.yellow = 100;
+    cmyk.black = 0;
+    bleed.color = cmyk;
+    return bleed;
+}
+
+function makeSpotBleedColor(doc) {
+    var spot = ensureBleedSpot(doc);
+    var sc = new SpotColor();
+    sc.spot = spot;
+    sc.tint = 100;
+    return sc;
+}
+
+function getBleedFailSafeRotation(templateCode) {
+    var code = templateCode ? String(templateCode).toUpperCase() : '';
+    if (BLEED_FAILSAFE_SETTINGS.templates && code) {
+        var entry = BLEED_FAILSAFE_SETTINGS.templates[code];
+        if (typeof entry === 'number') {
+            return entry;
+        }
+        if (entry && typeof entry.rotation === 'number') {
+            return entry.rotation;
+        }
+    }
+    if (typeof BLEED_FAILSAFE_SETTINGS.rotation === 'number') {
+        return BLEED_FAILSAFE_SETTINGS.rotation;
+    }
+    if (typeof BLEED_FAILSAFE_SETTINGS.defaultRotation === 'number') {
+        return BLEED_FAILSAFE_SETTINGS.defaultRotation;
+    }
+    return 0;
+}
+
 function usesBleedSpot(color, spot) {
     if (!color || color.typename !== 'SpotColor' || !color.spot) return false;
     var colorSpot = color.spot;
@@ -952,8 +1072,9 @@ function usesBleedSpot(color, spot) {
 
 function findBleedPath(doc, colorFn, createLayer) {
     var bleedGroup;
+    var bleedLayer = null;
     if (createLayer) {
-        var bleedLayer = doc.layers.add();
+        bleedLayer = doc.layers.add();
         bleedLayer.name = 'Bleed_Layer';
         bleedGroup = bleedLayer.groupItems.add();
     } else {
@@ -984,15 +1105,64 @@ function findBleedPath(doc, colorFn, createLayer) {
         paths[i].move(bleedGroup, ElementPlacement.PLACEATEND);
     }
 
-    if (bleedGroup.pageItems.length === 0) alertAndExit('Bleed paths not found.');
+    if (bleedGroup.pageItems.length === 0) {
+        if (bleedLayer) {
+            bleedLayer.remove();
+        } else {
+            bleedGroup.remove();
+        }
+        return null;
+    }
     return bleedGroup;
 }
 
+function bringBleedGroupToFront(bleedGroup) {
+    var result = { moved: false, group: bleedGroup };
+    if (!bleedGroup) return result;
+
+    var doc = bleedGroup;
+    while (doc && doc.typename !== 'Document' && doc.parent) {
+        doc = doc.parent;
+    }
+    if (!doc || doc.typename !== 'Document') return result;
+
+    var bleedSpot = findBleedSpot(doc);
+    var topLayer = doc.layers.add();
+    topLayer.name = 'Bleed_Top_Layer';
+    try { topLayer.move(doc, ElementPlacement.PLACEATBEGINNING); } catch (e) {}
+    var topGroup = topLayer.groupItems.add();
+
+    if (bleedGroup.pageItems && bleedGroup.pageItems.length) {
+        for (var i = 0; i < bleedGroup.pageItems.length; i++) {
+            var it = bleedGroup.pageItems[i];
+            var usesBleed = false;
+            try {
+                usesBleed = usesBleedSpot(it.strokeColor, bleedSpot) || usesBleedSpot(it.fillColor, bleedSpot);
+            } catch (e2) {}
+            if (!usesBleed && it.name && it.name.toLowerCase() === 'bleed') usesBleed = true;
+            if (!usesBleed) continue;
+            try {
+                it.move(topGroup, ElementPlacement.PLACEATEND);
+                result.moved = true;
+            } catch (e3) {}
+        }
+    }
+
+    if (result.moved && topGroup.pageItems.length) {
+        result.group = topGroup;
+    } else {
+        try { topLayer.remove(); } catch (e4) {}
+    }
+
+    return result;
+}
+
 function findTopBleedPath(doc, createLayer) {
-    if (doc.pathItems.length === 0) alertAndExit('Bleed paths not found.');
+    if (doc.pathItems.length === 0) return null;
     var bleedGroup;
+    var bleedLayer = null;
     if (createLayer) {
-        var bleedLayer = doc.layers.add();
+        bleedLayer = doc.layers.add();
         bleedLayer.name = 'Bleed_Layer';
         bleedGroup = bleedLayer.groupItems.add();
     } else {
@@ -1000,7 +1170,59 @@ function findTopBleedPath(doc, createLayer) {
     }
     var p = doc.pathItems[doc.pathItems.length - 1];
     p.move(bleedGroup, ElementPlacement.PLACEATEND);
+    if (bleedGroup.pageItems.length === 0) {
+        if (bleedLayer) {
+            bleedLayer.remove();
+        } else {
+            bleedGroup.remove();
+        }
+        return null;
+    }
     return bleedGroup;
+}
+
+function runBleedFailSafe(artworkDoc, templateFile, templateCode) {
+    var result = { bleedGroup: null, templateDoc: null };
+    if (!artworkDoc || !templateFile) return result;
+
+    writeProgress('Bleed not found. Running fail-safe recovery.');
+    var templateDoc = app.open(templateFile);
+    waitForDocLoad(templateDoc);
+    result.templateDoc = templateDoc;
+
+    var templateBleedPath = findLargestBleedPath(templateDoc, isTemplateBleedColor);
+    if (!templateBleedPath) {
+        templateDoc.close(SaveOptions.DONOTSAVECHANGES);
+        alertAndExit('Bleed paths not found.');
+    }
+
+    var bleedLayer = artworkDoc.layers.add();
+    bleedLayer.name = 'Bleed_Layer';
+    var bleedGroup = bleedLayer.groupItems.add();
+    var duplicate = templateBleedPath.duplicate(bleedGroup, ElementPlacement.PLACEATEND);
+    if (!duplicate) {
+        bleedLayer.remove();
+        templateDoc.close(SaveOptions.DONOTSAVECHANGES);
+        alertAndExit('Failed to duplicate template bleed path.');
+    }
+
+    duplicate.name = 'Bleed';
+    duplicate.hidden = false;
+    duplicate.locked = false;
+    duplicate.stroked = true;
+    duplicate.strokeColor = makeSpotBleedColor(artworkDoc);
+
+    var artboardRect = getArtboardRect(artworkDoc);
+    centerItemOnArtboard(bleedGroup, artboardRect);
+
+    var rotation = getBleedFailSafeRotation(templateCode);
+    if (rotation) {
+        bleedGroup.rotate(rotation, true, true, true, true, Transformation.CENTER);
+    }
+
+    result.bleedGroup = bleedGroup;
+    writeProgress('  Fail-safe bleed recreated');
+    return result;
 }
 
 function getBleedBounds(doc, colorFn) {
@@ -1110,6 +1332,29 @@ function getBoundsAnchor(bounds, alignment) {
     }
 }
 
+function getArtboardRect(doc) {
+    if (!doc || !doc.artboards || doc.artboards.length === 0) return null;
+    var active = doc.artboards[doc.artboards.getActiveArtboardIndex()];
+    for (var i = 0; i < doc.artboards.length; i++) {
+        var ab = doc.artboards[i];
+        if (ab.name && ab.name.toLowerCase() === 'art') {
+            active = ab;
+            break;
+        }
+    }
+    return active.artboardRect;
+}
+
+function centerItemOnArtboard(item, rect) {
+    if (!item || !rect) return;
+    var bounds = item.visibleBounds;
+    var itemCenterX = (bounds[0] + bounds[2]) / 2;
+    var itemCenterY = (bounds[1] + bounds[3]) / 2;
+    var rectCenterX = (rect[0] + rect[2]) / 2;
+    var rectCenterY = (rect[1] + rect[3]) / 2;
+    item.translate(rectCenterX - itemCenterX, rectCenterY - itemCenterY);
+}
+
 function alignGroupToPath(group, path, alignment) {
     if (!path) return;
     var maskB = getMaskBounds(group);
@@ -1180,7 +1425,7 @@ function createClippingGroup(doc, bleedGroup) {
     }
 
     var grp = doc.groupItems.add();
-    for (var i = topLevelItems.length - 1; i >= 0; i--) {
+    for (var i = 0; i < topLevelItems.length; i++) {
         topLevelItems[i].move(grp, ElementPlacement.PLACEATEND);
     }
 
@@ -1270,6 +1515,29 @@ function main() {
             var pair = opts.pairs[p];
             var summaryItem = null;
             var err = null;
+
+            if (pair && pair.skip) {
+                var skipReason = pair.skipReason || '';
+                writeProgress('Skipping pair ' + (p + 1) + (skipReason ? ': ' + skipReason : ''));
+                summaryItem = {
+                    pair: p + 1,
+                    art: pair.artFile ? pair.artFile.name : (pair.orderData && pair.orderData.filename ? pair.orderData.filename : ''),
+                    template: pair.templateFile ? pair.templateFile.name : '',
+                    info: skipReason ? 'Skipped: ' + skipReason : 'Skipped',
+                    gluetab: pair.orderData ? (pair.orderData.gluetab || '') : '',
+                    laminate: pair.laminate && pair.laminate.name ? pair.laminate.name : '',
+                    paper: pair.paper || '',
+                    lines: '',
+                    flat: '',
+                    artPath: pair.artFile ? pair.artFile.fsName : '',
+                    templatePath: pair.templateFile ? pair.templateFile.fsName : '',
+                    filename: pair.orderData ? (pair.orderData.filename || '') : '',
+                    skip: true
+                };
+                summaryItems.push(summaryItem);
+                continue;
+            }
+
             for (var attempt = 0; attempt < 3; attempt++) {
                 checkStop();
                 try {
@@ -1301,6 +1569,12 @@ function main() {
     summary += '\n\n';
     for (var si = 0; si < summaryItems.length; si++) {
         var it = summaryItems[si];
+        if (it.skip) {
+            summary += 'Pair ' + it.pair + ': SKIPPED';
+            if (it.info) summary += ' - ' + it.info;
+            summary += '\n\n';
+            continue;
+        }
         summary += 'Pair ' + it.pair + ': ' + it.art + ' -> ' + it.template + '\n';
         summary += '  Info: ' + it.info + '\n';
         summary += '  GlueTab: ' + it.gluetab + '\n';
@@ -1367,9 +1641,11 @@ function processPair(pair, index) {
     writeProgress('  Artwork loaded');
 
     var tmplName = pair.templateFile.name.toLowerCase();
+    var templateCodeUpper = pair.templateCode ? String(pair.templateCode).toUpperCase() : '';
     var isCD0434 = tmplName.indexOf('cd0434') !== -1;
     var isPB001 = tmplName.indexOf('pb001') !== -1;
     var isPB005 = tmplName.indexOf('pb005') !== -1;
+    var isPOTemplate = templateCodeUpper.indexOf('PO') === 0;
     var settings = loadTemplateSettings(pair.templateCode);
     var rawAlignment = (settings && typeof settings.alignment === 'string') ? settings.alignment : null;
     var alignment = normalizeAlignment(rawAlignment || 'center');
@@ -1378,21 +1654,42 @@ function processPair(pair, index) {
     }
 
     writeProgress('Finding bleed path in artwork');
+    var templateDoc = null;
     var bleedGroup = isCD0434 ?
         findTopBleedPath(artworkDoc, true) :
         findBleedPath(artworkDoc, isArtBleedColor, true);
+    if (!bleedGroup) {
+        var failSafe = runBleedFailSafe(artworkDoc, pair.templateFile, pair.templateCode);
+        bleedGroup = failSafe.bleedGroup;
+        templateDoc = failSafe.templateDoc;
+    }
+    if (!bleedGroup) alertAndExit('Bleed paths not found.');
     waitStep();
     writeProgress('  Bleed path located');
+
+    if (isPOTemplate) {
+        var liftResult = bringBleedGroupToFront(bleedGroup);
+        if (liftResult && liftResult.moved) {
+            bleedGroup = liftResult.group || bleedGroup;
+            writeProgress('  Raised bleed path to top for PO template before clipping');
+        } else {
+            writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
+        }
+    }
 
     writeProgress('Creating clipping mask');
     var clipGroup = createClippingGroup(artworkDoc, bleedGroup);
     waitStep();
     writeProgress('  Clip group created');
 
-    writeProgress('Opening template "' + pair.templateFile.name + '"');
-    var templateDoc = app.open(pair.templateFile);
-    waitForDocLoad(templateDoc);
-    writeProgress('  Template opened');
+    if (templateDoc) {
+        writeProgress('Template already open from fail-safe');
+    } else {
+        writeProgress('Opening template "' + pair.templateFile.name + '"');
+        templateDoc = app.open(pair.templateFile);
+        waitForDocLoad(templateDoc);
+        writeProgress('  Template opened');
+    }
 
     if (artworkDoc.documentColorSpace !== templateDoc.documentColorSpace) {
         var artSpace = artworkDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
@@ -1540,7 +1837,7 @@ function processPair(pair, index) {
             isPTemplate = true;
         }
     }
-    var destRoot = getAncestorFolder(pair.artFile, isPTemplate ? 2 : 1);
+    var destRoot = getAncestorFolder(pair.artFile, 1);
     if (destRoot && !(destRoot instanceof Folder)) {
         destRoot = new Folder(destRoot);
     }

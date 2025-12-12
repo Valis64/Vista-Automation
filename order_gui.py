@@ -28,12 +28,17 @@ import time
 import threading
 import math
 import shutil
+import fitz
+from utils.po_art import resolve_paired_page_art
 from loading_window import LoadingWindow
 from utils.common import (
     ALLOWED_ALIGNMENTS,
     LAM_COLORS,
     get_laminate_color,
+    load_bleed_failsafe_settings,
+    save_bleed_failsafe_settings,
     load_template_settings,
+    normalize_bleed_failsafe_settings,
     save_template_settings,
     update_template_settings,
     export_template_settings,
@@ -234,7 +239,32 @@ def resolve_print_output_folder(
     if not is_p_template and name:
         is_p_template = _is_p_series(Path(name).name)
 
-    target_index = 2 if is_p_template else 1
+    def _is_po(identifier: str) -> bool:
+        cleaned = (identifier or "").strip().upper()
+        return cleaned.startswith("PO") if cleaned else False
+
+    is_po_template = _is_po(code)
+    if not is_po_template and name:
+        is_po_template = _is_po(Path(name).name)
+
+    def _is_extracted_page_path(p: Path) -> bool:
+        """Return ``True`` when ``p`` looks like an extracted PO page path."""
+
+        name = p.name.lower()
+        if re.search(r"page\d+\.pdf$", name):
+            return True
+
+        parent = p.parent
+        parent_name = parent.name.lower()
+        if parent.suffix.lower() == ".pdf":
+            return True
+
+        return parent_name.endswith("_pages") or parent_name.endswith("_extracts")
+
+    if is_po_template:
+        target_index = 2 if _is_extracted_page_path(path) else 1
+    else:
+        target_index = 1
 
     try:
         root = parents[target_index]
@@ -341,7 +371,7 @@ def prepare_flat_review_entries(
         if idx is None or idx in skip_set:
             continue
 
-        art_path = candidate.get("art_path") or assignments.get(idx, "")
+        art_path = assignments.get(idx, "") or candidate.get("art_path")
         if not art_path:
             continue
 
@@ -502,8 +532,10 @@ def parse_order(html: str) -> dict:
 
     Returns a dictionary with keys:
     - ``items``: list of order item dictionaries as before
-    - ``pairs``: list of ``{"template": str, "art_id": str}`` extracted from
-      ``div.order-items`` blocks
+    - ``pairs``: list of ``{"template": str, "art_id": str, "skip": bool}``
+      extracted from ``div.order-items`` blocks. ``skip`` is present when a pair
+      is intentionally excluded from art processing (e.g., "No Print Box"
+      placeholders).
     - ``order_info``: dictionary with ``order_id``, ``created_by``,
       ``ordered_by`` and ``company`` if found in the HTML
     """
@@ -585,6 +617,13 @@ def parse_order(html: str) -> dict:
 
     soup = BeautifulSoup(html, "html.parser")
 
+    def _is_no_print_box(template: str, art_text: str) -> bool:
+        return bool(
+            template
+            and re.match(r"PO.*B", template, re.I)
+            and "no print box" in (art_text or "").lower()
+        )
+
     # Preferred simple structure
     for div in soup.select("div.order-items div.item"):
         t = div.find("span", class_="template")
@@ -593,6 +632,9 @@ def parse_order(html: str) -> dict:
             continue
         template = t.get_text(strip=True)
         art_full = a_full.get_text(strip=True)
+        if _is_no_print_box(template, art_full):
+            pairs.append({"template": template, "art_id": "", "skip": True})
+            continue
         art_id = extract_art_id(art_full)
         pairs.append({"template": template, "art_id": art_id})
 
@@ -607,6 +649,9 @@ def parse_order(html: str) -> dict:
                 continue
             template = cells[1].get_text(strip=True)
             art_full = cells[2].get_text(strip=True)
+            if _is_no_print_box(template, art_full):
+                pairs.append({"template": template, "art_id": "", "skip": True})
+                continue
             art_id = extract_art_id(art_full)
             if template or art_id:
                 pairs.append({"template": template, "art_id": art_id})
@@ -714,179 +759,6 @@ def find_art_file(
                     return os.path.join(dirpath, name)
     return ""
 
-
-def resolve_paired_page_art(
-    entries: Sequence[dict],
-    contexts: Sequence[dict],
-    logger: Callable[[str], None],
-) -> tuple[dict[int, str], set[int]]:
-    """Assign PAGE1/PAGE2 files from extracted ZIP folders to P templates."""
-
-    assignments: dict[int, str] = {}
-    skips: set[int] = set()
-
-    if logger is None:
-        logger = lambda _: None  # type: ignore[assignment]
-
-    limit = min(len(entries), len(contexts))
-    if limit == 0:
-        return assignments, skips
-
-    def collect_search_dirs(ctx: dict) -> list[str]:
-        dirs: list[str] = []
-        art_path = ctx.get("art_path") or ""
-        if art_path:
-            if os.path.isdir(art_path):
-                dirs.append(art_path)
-            else:
-                parent = os.path.dirname(art_path)
-                if parent:
-                    dirs.append(parent)
-        art_root = ctx.get("art_root") or ""
-        if art_root:
-            dirs.append(art_root)
-        month_root = ctx.get("month_root") or ""
-        order_id = ctx.get("order_id") or ""
-        if month_root and order_id:
-            dirs.append(os.path.join(month_root, str(order_id), "art"))
-        extra = ctx.get("search_dirs")
-        if isinstance(extra, (list, tuple, set)):
-            dirs.extend(str(d) for d in extra if d)
-        elif extra:
-            dirs.append(str(extra))
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for path in dirs:
-            norm = os.path.abspath(path)
-            if norm in seen:
-                continue
-            seen.add(norm)
-            ordered.append(path)
-        return ordered
-
-    def find_page(folder: str, number: int) -> str:
-        target = f"page{number}.pdf"
-        target_l = target.lower()
-        try:
-            for name in os.listdir(folder):
-                path = os.path.join(folder, name)
-                if os.path.isfile(path) and name.lower() == target_l:
-                    return path
-        except Exception:
-            return ""
-        return ""
-
-    def has_page(folder: str) -> bool:
-        return bool(find_page(folder, 1) or find_page(folder, 2))
-
-    def locate_folder(base_code: str, indices: list[int]) -> str:
-        base_lower = base_code.lower()
-        for idx in indices:
-            if idx >= limit:
-                continue
-            ctx = contexts[idx]
-            art_path = ctx.get("art_path") or ""
-            art_id = str(ctx.get("art_id") or "")
-            art_id_l = art_id.lower()
-            if art_path:
-                if os.path.isdir(art_path) and has_page(art_path):
-                    return art_path
-                if os.path.isfile(art_path):
-                    parent = os.path.dirname(art_path)
-                    if os.path.isdir(parent) and has_page(parent):
-                        return parent
-            for root in collect_search_dirs(ctx):
-                if not os.path.isdir(root):
-                    continue
-                root_name = os.path.basename(root.rstrip(os.sep)).lower()
-                if art_id_l and art_id_l in root_name and has_page(root):
-                    return root
-                if base_lower and base_lower in root_name and has_page(root):
-                    return root
-                try:
-                    for name in os.listdir(root):
-                        candidate = os.path.join(root, name)
-                        if not os.path.isdir(candidate):
-                            continue
-                        low = name.lower()
-                        if art_id_l and art_id_l in low and has_page(candidate):
-                            return candidate
-                        if base_lower in low and has_page(candidate):
-                            return candidate
-                except Exception:
-                    continue
-        return ""
-
-    pair_map: dict[str, dict[str, int | None]] = {}
-    for idx in range(limit):
-        template = str(entries[idx].get("template", "") or "").strip().upper()
-        if not template.startswith("P") or template.startswith("PB"):
-            continue
-        is_mate = template.endswith("B") and len(template) > 1
-        base_code = template[:-1] if is_mate else template
-        info = pair_map.setdefault(base_code, {"base": None, "mate": None})
-        if is_mate:
-            if info.get("mate") is None:
-                info["mate"] = idx
-        else:
-            if info.get("base") is None:
-                info["base"] = idx
-
-    for base_code, info in pair_map.items():
-        base_idx = info.get("base")
-        mate_idx = info.get("mate")
-        mate_template = (
-            entries[mate_idx].get("template", "")
-            if mate_idx is not None and mate_idx < len(entries)
-            else ""
-        )
-        if mate_idx is None:
-            logger(
-                f"Warning: P pair {base_code} missing mate template; expected {base_code}B."
-            )
-        indices = [i for i in (base_idx, mate_idx) if i is not None]
-        if not indices:
-            continue
-        art_id = ""
-        for idx in indices:
-            if idx >= limit:
-                continue
-            art_id = str(contexts[idx].get("art_id") or art_id)
-            if art_id:
-                break
-        folder = locate_folder(base_code, indices)
-        mate_label = mate_template or "missing"
-        if folder:
-            logger(
-                f"Resolved zip folder for P pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
-            )
-            page1 = find_page(folder, 1)
-            page2 = find_page(folder, 2)
-            if base_idx is not None and base_idx < len(entries):
-                if page1:
-                    assignments[base_idx] = page1
-                else:
-                    logger(
-                        f"Warning: page1.pdf not found for {base_code} in {folder}; skipping template {entries[base_idx].get('template', base_code)}."
-                    )
-                    skips.add(base_idx)
-            if mate_idx is not None and mate_idx < len(entries):
-                if page2:
-                    assignments[mate_idx] = page2
-                else:
-                    logger(
-                        f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
-                    )
-                    skips.add(mate_idx)
-        else:
-            logger(
-                f"Error: could not locate extracted folder for P pair {base_code} (art {art_id or 'unknown'}, mate {mate_label})."
-            )
-            for idx in indices:
-                if idx is not None:
-                    skips.add(idx)
-
-    return assignments, skips
 
 
 def find_template_file(root: str, template: str, sample: bool = False) -> str:
@@ -1014,26 +886,41 @@ def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = N
     return written
 
 
-def move_art_to_folder(order_dir: str) -> tuple[int, int]:
+def move_art_to_folder(
+    order_dir: str, logger: Callable[[str], None] | None = None
+) -> tuple[int, int, list[str], int]:
     """Extract ZIPs and move .ai or .pdf files in ``order_dir`` to ``art``.
 
-    Returns a tuple of ``(art_file_count, zip_count)`` representing the number
-    of individual art files moved and the number of ZIP archives extracted and
-    relocated into the ``art`` subfolder.
+    Returns a tuple of ``(art_file_count, zip_count, split_artifacts,
+    split_pairs)`` representing the number of individual art files moved, the
+    number of ZIP archives extracted and relocated into the ``art`` subfolder,
+    the paired-page PDF outputs created while preparing two-page PDFs, and the
+    number of two-page PDFs that were split into page-specific files.
     """
 
+    def log(text: str) -> None:
+        if logger:
+            try:
+                logger(text)
+            except Exception:
+                traceback.print_exc()
+
     if not os.path.isdir(order_dir):
-        return 0, 0
+        log(f"Warning: order folder missing or unreadable: {order_dir}")
+        return 0, 0, [], 0
 
     try:
         entries = os.listdir(order_dir)
     except Exception:
         traceback.print_exc()
-        return 0, 0
+        log(f"Warning: could not list order folder {order_dir}")
+        return 0, 0, [], 0
 
     art_dir = os.path.join(order_dir, "art")
     moved_files = 0
     zip_count = 0
+    split_artifacts: list[str] = []
+    split_pairs = 0
 
     def unique_path(base_dir: str, name: str) -> str:
         candidate = os.path.join(base_dir, name)
@@ -1111,17 +998,85 @@ def move_art_to_folder(order_dir: str) -> tuple[int, int]:
             moved_files += 1
         except Exception:
             traceback.print_exc()
-    return moved_files, zip_count
+
+    def split_two_page_pdfs(folder: str) -> tuple[list[str], int]:
+        created: list[str] = []
+        paired_count = 0
+        if not os.path.isdir(folder):
+            return created, paired_count
+        for dirpath, _, files in os.walk(folder):
+            for name in files:
+                if not name.lower().endswith(".pdf"):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    doc = fitz.open(path)
+                except Exception as exc:  # pragma: no cover - fitz errors are rare
+                    traceback.print_exc()
+                    log(f"Error opening PDF for paired split {path}: {exc}")
+                    continue
+                before_count = len(created)
+                try:
+                    if doc.page_count != 2:
+                        continue
+                    paired_count += 1
+                    stem = Path(name).stem
+                    for page_num in (0, 1):
+                        dest = os.path.join(dirpath, f"{stem}_page{page_num + 1}.pdf")
+                        try:
+                            if os.path.exists(dest):
+                                os.remove(dest)
+                        except Exception as exc:
+                            traceback.print_exc()
+                            log(
+                                f"Warning: could not remove existing paired page artifact {dest}: {exc}"
+                            )
+                            continue
+                        try:
+                            new_doc = fitz.open()
+                            new_doc.insert_pdf(doc, from_page=page_num, to_page=page_num)
+                            new_doc.save(dest)
+                            new_doc.close()
+                            created.append(dest)
+                        except Exception as exc:
+                            traceback.print_exc()
+                            log(
+                                f"Error saving paired page {page_num + 1} for {path}: {exc}"
+                            )
+                            try:
+                                if os.path.exists(dest):
+                                    os.remove(dest)
+                            except Exception:
+                                traceback.print_exc()
+                            break
+                    if len(created) > before_count:
+                        log(f"Split paired PDF into separate pages: {path}")
+                finally:
+                    try:
+                        doc.close()
+                    except Exception:
+                        traceback.print_exc()
+        return created, paired_count
+
+    split_outputs, split_pairs = split_two_page_pdfs(art_dir)
+    split_artifacts.extend(split_outputs)
+
+    return moved_files, zip_count, split_artifacts, split_pairs
 
 
-def format_art_move_summary(art_files: int, zip_count: int) -> tuple[list[str], str | None]:
+def format_art_move_summary(
+    art_files: int, zip_count: int, split_pairs: int, split_files: int
+) -> tuple[list[str], str | None]:
     """Create human-readable status lines for art move results."""
 
     file_word = "file" if art_files == 1 else "files"
     archive_word = "archive" if zip_count == 1 else "archives"
+    split_word = "PDF" if split_pairs == 1 else "PDFs"
+    page_word = "page" if split_files == 1 else "pages"
     lines = [
         f"Moved {art_files} art {file_word} into art folders.",
         f"Extracted {zip_count} {archive_word} into dedicated folders.",
+        f"Detected and split {split_pairs} two-page {split_word} into {split_files} {page_word}.",
     ]
     warning = ".zip files were deleted after extraction." if zip_count else None
     return lines, warning
@@ -1299,10 +1254,14 @@ def populate_pairs(
         company = it.get("company", "")
         art_id = ""
         template = ""
+        skip = False
+        skip_reason = ""
         if pair_data and idx_item - 1 < len(pair_data):
             pair = pair_data[idx_item - 1]
             art_id = pair.get("art_id", "")
             template = pair.get("template", "")
+            skip = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
         else:
             art_text = it.get("artName") or it.get("filename", "")
             art_id = extract_art_id(art_text)
@@ -1316,13 +1275,18 @@ def populate_pairs(
         row = tk.Frame(frame)
         row.grid(row=idx_item, column=0, sticky="w")
 
-        var = tk.BooleanVar(value=True)
-        tk.Checkbutton(row, variable=var).grid(row=0, column=0, sticky="w")
+        var = tk.BooleanVar(value=not skip)
+        chk_state = {"state": "disabled"} if skip else {}
+        tk.Checkbutton(row, variable=var, **chk_state).grid(row=0, column=0, sticky="w")
         text = f"{oid}.{seq} - {company} - {art_id} -> {template} <- ({glue}) - "
         display_text = text
         row_index = idx_item - 1
         label_kwargs: dict[str, Any] = {"anchor": "w"}
-        if row_index in missing:
+        if skip:
+            reason = skip_reason or "No print box"
+            display_text = f"SKIPPED: {reason} - {text}"
+            label_kwargs["foreground"] = "gray"
+        elif row_index in missing:
             display_text += " [MISSING ART]"
             label_kwargs["foreground"] = "red"
         tk.Label(row, text=display_text, **label_kwargs).grid(row=0, column=1, sticky="w")
@@ -2038,8 +2002,11 @@ class App:
         win = tk.Toplevel(self.root)
         win.title("Template Settings")
 
+        template_frame = tk.LabelFrame(win, text="Template Settings")
+        template_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
         search_var = tk.StringVar()
-        search_frame = tk.Frame(win)
+        search_frame = tk.Frame(template_frame)
         search_frame.pack(fill="x", padx=5, pady=(5, 0))
         tk.Label(search_frame, text="Search").pack(side="left")
         tk.Entry(search_frame, textvariable=search_var).pack(
@@ -2049,7 +2016,7 @@ class App:
             side="left"
         )
 
-        table_frame = tk.Frame(win)
+        table_frame = tk.Frame(template_frame)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
         columns = ("code", "rotation", "bleed", "mirror", "artworkScale", "alignment")
         tree = ttk.Treeview(
@@ -2127,7 +2094,7 @@ class App:
 
         tree.bind("<<TreeviewSelect>>", load_selected)
 
-        edit_frame = tk.Frame(win)
+        edit_frame = tk.Frame(template_frame)
         edit_frame.pack(fill="x", padx=5, pady=5)
         tk.Label(edit_frame, text="Rotation").grid(row=0, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
@@ -2408,6 +2375,205 @@ class App:
             if path.exists():
                 tree.selection_set(code)
                 load_selected()
+
+        ttk.Separator(win, orient="horizontal").pack(fill="x", pady=5)
+
+        failsafe_frame = tk.LabelFrame(win, text="Bleed Fail-Safe Settings")
+        failsafe_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        failsafe_state: dict[str, dict] = {"data": load_bleed_failsafe_settings()}
+        fs_default_var = tk.StringVar(
+            value=str(failsafe_state["data"].get("defaultRotation", 0))
+        )
+        fs_code_var = tk.StringVar()
+        fs_die_var = tk.StringVar()
+        fs_rotation_var = tk.StringVar()
+        fs_status_var = tk.StringVar()
+        fs_unsaved = {"flag": False}
+
+        fs_table_frame = tk.Frame(failsafe_frame)
+        fs_table_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        fs_columns = ("code", "dieName", "rotation")
+        fs_tree = ttk.Treeview(
+            fs_table_frame,
+            columns=fs_columns,
+            show="headings",
+            selectmode="browse",
+            height=6,
+        )
+        fs_tree.pack(side="left", fill="both", expand=True)
+        for col in fs_columns:
+            heading = "Die Name" if col == "dieName" else col.title()
+            width = 220 if col == "dieName" else 140
+            anchor = "w" if col in {"code", "dieName"} else "center"
+            fs_tree.heading(col, text=heading)
+            fs_tree.column(col, width=width, anchor=anchor)
+        fs_scroll = ttk.Scrollbar(fs_table_frame, orient="vertical", command=fs_tree.yview)
+        fs_scroll.pack(side="left", fill="y")
+        fs_tree.configure(yscrollcommand=fs_scroll.set)
+
+        fs_edit_frame = tk.Frame(failsafe_frame)
+        fs_edit_frame.pack(fill="x", padx=5, pady=5)
+        tk.Label(fs_edit_frame, text="Default Rotation").grid(row=0, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_default_var).grid(row=0, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Template Code").grid(row=1, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_code_var).grid(row=1, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Die Name").grid(row=2, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_die_var).grid(row=2, column=1, sticky="we")
+        tk.Label(fs_edit_frame, text="Rotation").grid(row=3, column=0, sticky="w")
+        tk.Entry(fs_edit_frame, textvariable=fs_rotation_var).grid(row=3, column=1, sticky="we")
+        fs_edit_frame.grid_columnconfigure(1, weight=1)
+
+        def refresh_failsafe_table(*_):
+            selection = fs_tree.selection()
+            fs_tree.delete(*fs_tree.get_children())
+            data = failsafe_state["data"]
+            fs_default_var.set(str(data.get("defaultRotation", 0)))
+            for code_key, entry in sorted(data.get("templates", {}).items()):
+                die_name = entry.get("dieName", code_key)
+                rotation_val = entry.get("rotation", "")
+                fs_tree.insert("", "end", iid=code_key, values=(code_key, die_name, rotation_val))
+            if selection and selection[0] in fs_tree.get_children():
+                fs_tree.selection_set(selection[0])
+                load_failsafe_selected()
+            fs_unsaved["flag"] = False
+            update_failsafe_state()
+
+        def load_failsafe_selected(event=None):
+            sel = fs_tree.selection()
+            if not sel:
+                return
+            code_key = sel[0]
+            entry = failsafe_state["data"].get("templates", {}).get(code_key, {})
+            fs_code_var.set(code_key)
+            fs_die_var.set(str(entry.get("dieName", code_key)))
+            fs_rotation_var.set(str(entry.get("rotation", "")))
+            fs_unsaved["flag"] = False
+            update_failsafe_state()
+
+        fs_tree.bind("<<TreeviewSelect>>", load_failsafe_selected)
+
+        def failsafe_validate() -> bool:
+            default_text = fs_default_var.get().strip()
+            try:
+                if default_text:
+                    float(default_text)
+            except ValueError:
+                return False
+
+            code_value = fs_code_var.get().strip().upper()
+            die_name_value = fs_die_var.get().strip()
+            rotation_text = fs_rotation_var.get().strip()
+            if code_value or die_name_value or rotation_text:
+                if not (code_value and die_name_value and rotation_text):
+                    return False
+                try:
+                    float(rotation_text)
+                except ValueError:
+                    return False
+            return True
+
+        def mark_failsafe_unsaved(*_):
+            fs_unsaved["flag"] = True
+            update_failsafe_state()
+
+        def update_failsafe_state():
+            if fs_unsaved["flag"] and failsafe_validate():
+                fs_save_btn.config(state="normal")
+            else:
+                fs_save_btn.config(state="disabled")
+
+        def save_failsafe_settings_ui():
+            if not failsafe_validate():
+                return
+            data = normalize_bleed_failsafe_settings(failsafe_state["data"], defaults=True)
+            default_text = fs_default_var.get().strip()
+            default_rotation = float(default_text) if default_text else 0
+            data["defaultRotation"] = default_rotation
+
+            code_value = fs_code_var.get().strip().upper()
+            die_name_value = fs_die_var.get().strip()
+            rotation_text = fs_rotation_var.get().strip()
+            if code_value or die_name_value or rotation_text:
+                if not code_value:
+                    messagebox.showerror("Error", "Template code is required")
+                    return
+                if not die_name_value:
+                    messagebox.showerror("Error", "Die name is required")
+                    return
+                if not rotation_text:
+                    messagebox.showerror("Error", "Rotation is required")
+                    return
+                rotation_value = float(rotation_text)
+                data.setdefault("templates", {})[code_value] = {
+                    "templateCode": code_value,
+                    "dieName": die_name_value,
+                    "rotation": rotation_value,
+                }
+
+            normalized = normalize_bleed_failsafe_settings(data, defaults=True)
+            try:
+                save_bleed_failsafe_settings(normalized)
+                failsafe_state["data"] = normalized
+                fs_status_var.set("Saved")
+                win.after(2000, lambda: fs_status_var.set(""))
+                fs_unsaved["flag"] = False
+                refresh_failsafe_table()
+                if code_value and code_value in fs_tree.get_children():
+                    fs_tree.selection_set(code_value)
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+
+        def add_failsafe_entry():
+            fs_tree.selection_remove(fs_tree.selection())
+            fs_code_var.set("")
+            fs_die_var.set("")
+            fs_rotation_var.set("")
+            fs_unsaved["flag"] = True
+            update_failsafe_state()
+
+        def delete_failsafe_entry():
+            sel = fs_tree.selection()
+            if not sel:
+                return
+            code_value = sel[0]
+            if not messagebox.askyesno("Delete", f"Delete fail-safe for {code_value}?"):
+                return
+            data = normalize_bleed_failsafe_settings(failsafe_state["data"], defaults=True)
+            data.get("templates", {}).pop(code_value, None)
+            try:
+                save_bleed_failsafe_settings(data)
+                failsafe_state["data"] = load_bleed_failsafe_settings()
+                fs_code_var.set("")
+                fs_die_var.set("")
+                fs_rotation_var.set("")
+                fs_unsaved["flag"] = False
+                refresh_failsafe_table()
+            except Exception as exc:
+                messagebox.showerror("Error", str(exc))
+
+        fs_btn_frame = tk.Frame(fs_edit_frame)
+        fs_btn_frame.grid(row=4, column=0, columnspan=2, pady=5)
+        fs_save_btn = tk.Button(
+            fs_btn_frame, text="Save", state="disabled", command=save_failsafe_settings_ui
+        )
+        fs_save_btn.pack(side="left", padx=2)
+        tk.Button(fs_btn_frame, text="Add", command=add_failsafe_entry).pack(
+            side="left", padx=2
+        )
+        tk.Button(fs_btn_frame, text="Delete", command=delete_failsafe_entry).pack(
+            side="left", padx=2
+        )
+        tk.Label(fs_edit_frame, textvariable=fs_status_var, fg="green").grid(
+            row=5, column=0, columnspan=2, sticky="w"
+        )
+
+        fs_code_var.trace_add("write", mark_failsafe_unsaved)
+        fs_die_var.trace_add("write", mark_failsafe_unsaved)
+        fs_rotation_var.trace_add("write", mark_failsafe_unsaved)
+        fs_default_var.trace_add("write", mark_failsafe_unsaved)
+
+        refresh_failsafe_table()
 
     def save_settings(self):
         data = {
@@ -2747,6 +2913,9 @@ class App:
         for idx in range(total):
             item = item_list[idx] if idx < len(item_list) else {}
             pair = pair_list[idx] if idx < len(pair_list) else {}
+
+            if pair.get("skip"):
+                continue
 
             art_path = str(
                 pair.get("art_path", "") or item.get("art_path", "") or ""
@@ -3159,9 +3328,12 @@ class App:
         cur = items_src[self.index]
         for key, txt in self.fields.items():
             cur[key] = txt.get("1.0", tk.END).strip()
-        items, selected_pairs, _ = self.get_selected_items()
+        items, selected_pairs, selected_indices = self.get_selected_items()
         raw_pairs: list[dict] = []
         pair_contexts: list[dict] = []
+        initial_skip_indices: set[int] = set()
+        initial_skip_reasons: dict[int, str] = {}
+
         for idx, it in enumerate(items):
             pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
             art_id = pair.get("art_id", "")
@@ -3177,6 +3349,12 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            skip_flag = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
+            if skip_flag:
+                initial_skip_indices.add(idx)
+                if skip_reason:
+                    initial_skip_reasons[idx] = skip_reason
             raw_pairs.append(
                 {
                     "art_id": art_id,
@@ -3185,6 +3363,8 @@ class App:
                     "template_path": temp_path,
                     "paperType": paper,
                     "lamType": lam,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
             pair_contexts.append(
@@ -3195,24 +3375,31 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
 
-        assignments, skip_indices = resolve_paired_page_art(
+        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
             raw_pairs, pair_contexts, self.log_message
         )
 
+        skip_set = set(skip_indices) | initial_skip_indices
+        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
         pairs_data: list[dict] = []
         for idx, entry in enumerate(raw_pairs):
-            if idx in skip_indices:
-                continue
+            updated = dict(entry)
             if idx in assignments:
-                entry = dict(entry)
-                entry["art_path"] = assignments[idx]
-            pairs_data.append(entry)
+                updated["art_path"] = assignments[idx]
+            if idx in skip_set:
+                updated["skip"] = True
+                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
+                if idx < len(items):
+                    items[idx]["skip"] = True
+                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+            pairs_data.append(updated)
 
-        if skip_indices:
-            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
+        self._apply_paired_page_results(pairs_data, selected_indices)
         save_order_data(
             {
                 "items": items,
@@ -3265,9 +3452,15 @@ class App:
             return {}
 
         if not self.pair_vars:
-            indices = list(range(len(items_src)))
-            pairs = [_pair_for_index(i) for i in indices]
-            return list(items_src), pairs, indices
+            indices: list[int] = []
+            pairs: list[dict] = []
+            filtered_items: list[dict] = []
+            for i, item in enumerate(items_src):
+                pair = _pair_for_index(i)
+                filtered_items.append(item)
+                pairs.append(pair)
+                indices.append(i)
+            return filtered_items, pairs, indices
 
         selected_items: list[dict] = []
         selected_pairs: list[dict] = []
@@ -3276,9 +3469,10 @@ class App:
             include = True
             if idx < len(self.pair_vars):
                 include = bool(self.pair_vars[idx].get())
+            pair = _pair_for_index(idx)
             if include:
                 selected_items.append(item)
-                selected_pairs.append(_pair_for_index(idx))
+                selected_pairs.append(pair)
                 selected_indices.append(idx)
 
         return selected_items, selected_pairs, selected_indices
@@ -3358,6 +3552,49 @@ class App:
             self.open_directory(p)
         self._arrange_windows(list(paths))
 
+    def _apply_paired_page_results(
+        self,
+        resolved_pairs: Sequence[Mapping[str, Any]],
+        selected_indices: Sequence[int],
+    ) -> None:
+        """Update checklist data with resolved PO pair info and refresh the UI."""
+
+        target_items = self.batch_items if self.batch_items else self.items
+        target_pairs = self.batch_pairs if self.batch_pairs else self.pairs
+
+        if not resolved_pairs or not target_pairs:
+            return
+
+        pair_frame = getattr(self, "pair_frame", None)
+        pair_vars = getattr(self, "pair_vars", None)
+        if not pair_frame or not pair_vars:
+            return
+
+        index_map = list(selected_indices) or list(range(len(resolved_pairs)))
+        for local_idx, pair in enumerate(resolved_pairs):
+            if local_idx >= len(index_map):
+                break
+            idx = index_map[local_idx]
+            if idx >= len(target_pairs):
+                continue
+            target_pairs[idx].update(pair)
+            if pair.get("skip") and idx < len(target_items):
+                target_items[idx]["skip"] = True
+                target_items[idx]["skip_reason"] = pair.get("skip_reason", "")
+
+        missing_art = self.compute_missing_art_indices(target_items, target_pairs)
+        count = populate_pairs(
+            self.pair_frame,
+            self.pair_vars,
+            target_items,
+            target_pairs,
+            self.foil_vars,
+            self.emboss_vars,
+            self.emboss_detected,
+            missing_art=missing_art,
+        )
+        self.update_checklist_count(count)
+
     def move_art_to_art_folders(self):
         """Extract ZIPs and move art files into per-order ``art`` folders."""
         month_root = self.month_dir_var.get().strip()
@@ -3367,52 +3604,187 @@ class App:
         items = self.items if self.items else self.batch_items
         moved_files = 0
         extracted_zips = 0
+        split_pairs = 0
+        split_files = 0
         seen: set[str] = set()
-        for it in items:
-            order_id = str(it.get("order_id", self.order_id_var.get())).strip()
-            if not order_id or order_id in seen:
+        split_artifacts: list[str] = []
+        protected_artifacts: set[str] = set()
+        try:
+            for it in items:
+                order_id = str(it.get("order_id", self.order_id_var.get())).strip()
+                if not order_id or order_id in seen:
+                    continue
+                seen.add(order_id)
+                order_dir = os.path.join(month_root, order_id)
+                files, zips, temps, pairs = move_art_to_folder(
+                    order_dir, logger=self.log_message
+                )
+                moved_files += files
+                extracted_zips += zips
+                split_artifacts.extend(temps)
+                split_pairs += pairs
+                split_files += len(temps)
+            self._show_art_move_summary(moved_files, extracted_zips, split_pairs, split_files)
+
+            items_src = self.batch_items if self.batch_items else self.items
+            pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
+            if items_src or pairs_src:
+                pair_states = [var.get() for var in self.pair_vars]
+                foil_states = [var.get() for var in self.foil_vars] if self.foil_vars else []
+                emboss_states = [var.get() for var in self.emboss_vars] if self.emboss_vars else []
+
+                repopulated = False
+                if pairs_src:
+                    raw_pairs: list[dict] = []
+                    pair_contexts: list[dict] = []
+                    initial_skip_indices: set[int] = set()
+                    initial_skip_reasons: dict[int, str] = {}
+
+                    for idx, pair in enumerate(pairs_src):
+                        item = items_src[idx] if idx < len(items_src) else {}
+                        art_id = pair.get("art_id", "")
+                        template = pair.get("template", "")
+                        art_root = item.get("art_dir", self.art_dir_var.get())
+                        month_root = item.get("month_dir", self.month_dir_var.get())
+                        order_id = pair.get("order_id", item.get("order_id", self.order_id_var.get()))
+                        filename_source = (
+                            item.get("filename")
+                            or pair.get("filename")
+                            or item.get("artName")
+                            or pair.get("artName")
+                            or ""
+                        )
+                        filename_hint = ""
+                        if filename_source:
+                            filename_hint = sanitize_filename_base(
+                                os.path.splitext(str(filename_source))[0]
+                            )
+                        art_path = (
+                            pair.get("art_path")
+                            or item.get("art_path")
+                            or find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+                        )
+                        skip_flag = bool(pair.get("skip"))
+                        skip_reason = pair.get("skip_reason", "")
+                        if skip_flag:
+                            initial_skip_indices.add(idx)
+                            if skip_reason:
+                                initial_skip_reasons[idx] = skip_reason
+
+                        raw_pairs.append(
+                            {
+                                "art_id": art_id,
+                                "template": template,
+                                "art_path": art_path,
+                                "skip": skip_flag,
+                                "skip_reason": skip_reason,
+                            }
+                        )
+                        pair_contexts.append(
+                            {
+                                "art_id": art_id,
+                                "art_root": art_root,
+                                "month_root": month_root,
+                                "order_id": order_id,
+                                "art_path": art_path,
+                                "template": template,
+                                "skip": skip_flag,
+                                "skip_reason": skip_reason,
+                            }
+                        )
+
+                    if raw_pairs:
+                        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
+                            raw_pairs, pair_contexts, self.log_message
+                        )
+
+                        skip_set = set(skip_indices) | initial_skip_indices
+                        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
+                        pairs_data: list[dict] = []
+                        for idx, entry in enumerate(raw_pairs):
+                            updated = dict(entry)
+                            if idx in assignments:
+                                updated["art_path"] = assignments[idx]
+                            if idx in skip_set:
+                                updated["skip"] = True
+                                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
+                                if idx < len(items_src):
+                                    items_src[idx]["skip"] = True
+                                    items_src[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+                            pairs_data.append(updated)
+
+                        self._apply_paired_page_results(
+                            pairs_data, list(range(len(pairs_data)))
+                        )
+                        for assigned in assignments.values():
+                            if assigned:
+                                protected_artifacts.add(assigned)
+                        repopulated = True
+
+                if not repopulated:
+                    missing_art = self.compute_missing_art_indices(items_src, pairs_src)
+                    count = populate_pairs(
+                        self.pair_frame,
+                        self.pair_vars,
+                        items_src,
+                        pairs_src,
+                        self.foil_vars,
+                        self.emboss_vars,
+                        self.emboss_detected,
+                        missing_art=missing_art,
+                    )
+                    self.update_checklist_count(count)
+
+                for idx, value in enumerate(pair_states):
+                    if idx < len(self.pair_vars):
+                        self.pair_vars[idx].set(value)
+                if self.foil_vars:
+                    for idx, value in enumerate(foil_states):
+                        if idx < len(self.foil_vars):
+                            self.foil_vars[idx].set(value)
+                if self.emboss_vars:
+                    for idx, value in enumerate(emboss_states):
+                        if idx < len(self.emboss_vars):
+                            self.emboss_vars[idx].set(value)
+        finally:
+            self._cleanup_temp_artifacts(split_artifacts, protected_artifacts)
+
+    def _cleanup_temp_artifacts(
+        self, paths: Iterable[str], protected: Iterable[str] | None = None
+    ):
+        """Delete temporary paired-page artifacts created during art moves.
+
+        Any split page files ending in ``_page1.pdf`` or ``_page2.pdf`` are
+        treated as permanent outputs and will not be removed.
+        """
+
+        protected_set = {os.path.abspath(p) for p in protected or [] if p}
+        for path in paths:
+            if not path:
                 continue
-            seen.add(order_id)
-            order_dir = os.path.join(month_root, order_id)
-            files, zips = move_art_to_folder(order_dir)
-            moved_files += files
-            extracted_zips += zips
-        self._show_art_move_summary(moved_files, extracted_zips)
+            try:
+                if os.path.isdir(path):
+                    continue
+                abs_path = os.path.abspath(path)
+                if abs_path in protected_set:
+                    continue
+                name_lower = os.path.basename(path).lower()
+                if name_lower.endswith("_page1.pdf") or name_lower.endswith("_page2.pdf"):
+                    continue
+                if os.path.exists(path):
+                    os.remove(path)
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                traceback.print_exc()
+                self.log_message(
+                    f"Warning: could not remove temporary paired art file {path}: {exc}"
+                )
 
-        items_src = self.batch_items if self.batch_items else self.items
-        pairs_src = self.batch_pairs if self.batch_pairs else self.pairs
-        if items_src or pairs_src:
-            pair_states = [var.get() for var in self.pair_vars]
-            foil_states = [var.get() for var in self.foil_vars] if self.foil_vars else []
-            emboss_states = [var.get() for var in self.emboss_vars] if self.emboss_vars else []
-
-            missing_art = self.compute_missing_art_indices(items_src, pairs_src)
-            count = populate_pairs(
-                self.pair_frame,
-                self.pair_vars,
-                items_src,
-                pairs_src,
-                self.foil_vars,
-                self.emboss_vars,
-                self.emboss_detected,
-                missing_art=missing_art,
-            )
-            self.update_checklist_count(count)
-
-            for idx, value in enumerate(pair_states):
-                if idx < len(self.pair_vars):
-                    self.pair_vars[idx].set(value)
-            if self.foil_vars:
-                for idx, value in enumerate(foil_states):
-                    if idx < len(self.foil_vars):
-                        self.foil_vars[idx].set(value)
-            if self.emboss_vars:
-                for idx, value in enumerate(emboss_states):
-                    if idx < len(self.emboss_vars):
-                        self.emboss_vars[idx].set(value)
-
-    def _show_art_move_summary(self, art_files: int, zip_count: int):
-        lines, warning = format_art_move_summary(art_files, zip_count)
+    def _show_art_move_summary(
+        self, art_files: int, zip_count: int, split_pairs: int, split_files: int
+    ):
+        lines, warning = format_art_move_summary(art_files, zip_count, split_pairs, split_files)
         win = tk.Toplevel(self.root)
         win.title("Extract & Move Art")
         win.transient(self.root)
@@ -3821,7 +4193,7 @@ class App:
         if not items_src:
             messagebox.showerror("Error", "No order data fetched")
             return
-        items, selected_pairs, _ = self.get_selected_items()
+        items, selected_pairs, selected_indices = self.get_selected_items()
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
@@ -3834,6 +4206,8 @@ class App:
         pair_orders_src: list[str] = []
         pair_contexts: list[dict] = []
         flat_candidates: list[dict] = []
+        initial_skip_indices: set[int] = set()
+        initial_skip_reasons: dict[int, str] = {}
         for idx, it in enumerate(items):
             pair = selected_pairs[idx] if idx < len(selected_pairs) else {}
             art_id = pair.get("art_id", "")
@@ -3852,6 +4226,12 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            skip_flag = bool(pair.get("skip"))
+            skip_reason = pair.get("skip_reason", "")
+            if skip_flag:
+                initial_skip_indices.add(pair_idx)
+                if skip_reason:
+                    initial_skip_reasons[pair_idx] = skip_reason
             # Capture metadata needed to build the flat PDF review entry
             filename_base = sanitize_filename_base(os.path.splitext(it.get("filename", ""))[0])
             glue = it.get("gluetab", "")
@@ -3882,6 +4262,8 @@ class App:
                 "paperType": paper,
                 "lamType": lam,
                 "order_id": order_id,
+                "skip": skip_flag,
+                "skip_reason": skip_reason,
             }
             raw_pairs.append(entry)
             pair_orders_src.append(order_id)
@@ -3893,24 +4275,33 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "skip": skip_flag,
+                    "skip_reason": skip_reason,
                 }
             )
 
-        assignments, skip_indices = resolve_paired_page_art(
+        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
             raw_pairs, pair_contexts, self.log_message
         )
 
+        skip_set = set(skip_indices) | initial_skip_indices
+        combined_skip_reasons = {**skip_reasons, **initial_skip_reasons}
         pairs_data: list[dict] = []
         pair_orders: list[str] = []
         for idx, entry in enumerate(raw_pairs):
-            if idx in skip_indices:
-                continue
+            updated = dict(entry)
             if idx in assignments:
-                entry = dict(entry)
-                entry["art_path"] = assignments[idx]
-            pairs_data.append(entry)
+                updated["art_path"] = assignments[idx]
+            if idx in skip_set:
+                updated["skip"] = True
+                updated["skip_reason"] = combined_skip_reasons.get(idx, "")
+                if idx < len(items):
+                    items[idx]["skip"] = True
+                    items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
+            pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
+        self._apply_paired_page_results(pairs_data, selected_indices)
         flat_entries, sample_entries = prepare_flat_review_entries(
             flat_candidates,
             assignments,
@@ -3921,14 +4312,14 @@ class App:
         self.sample_copy_info.extend(
             (cut_src, dest)
             for idx, cut_src, dest in sample_entries
-            if cut_src and idx not in skip_indices
+            if cut_src and idx not in skip_set
         )
 
         filtered_flat_entries: list[
             tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
         ] = []
         for idx, flat_path, info in flat_entries:
-            if idx in skip_indices:
+            if idx in skip_set:
                 continue
             if not flat_path or not info or not info[0]:
                 continue
@@ -3937,9 +4328,6 @@ class App:
         self.pending_flat_pairs = [idx for idx, _, _ in filtered_flat_entries]
         self.pending_flat_paths = [flat_path for _, flat_path, _ in filtered_flat_entries]
         self.pending_flat_info = [info for _, _, info in filtered_flat_entries]
-
-        if skip_indices:
-            items = [item for idx, item in enumerate(items) if idx not in skip_indices]
 
         save_order_data(
             {

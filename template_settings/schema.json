@@ -37,5 +37,52 @@
       "description": "Anchor point for placing artwork"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "BleedFailSafeSettings": {
+    "title": "Bleed fail-safe settings",
+    "type": "object",
+    "properties": {
+      "defaultRotation": {
+        "type": "number",
+        "description": "Fallback rotation when no template-specific value is set"
+      },
+      "rotation": {
+        "type": "number",
+        "description": "Legacy fallback rotation value"
+      },
+      "templates": {
+        "type": "object",
+        "description": "Per-template fail-safe overrides keyed by template code",
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "type": "number",
+              "description": "Legacy rotation-only entry"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "templateCode": {
+                  "type": "string",
+                  "description": "Template code this entry applies to"
+                },
+                "dieName": {
+                  "type": "string",
+                  "description": "Descriptive die name for this template"
+                },
+                "rotation": {
+                  "type": "number",
+                  "description": "Rotation to apply when recreating bleed"
+                }
+              },
+              "required": ["rotation", "dieName"],
+              "additionalProperties": true
+            }
+          ]
+        }
+      }
+    },
+    "required": ["templates"],
+    "additionalProperties": true
+  }
 }
