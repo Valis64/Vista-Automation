@@ -1768,6 +1768,12 @@ class App:
         row += 1
         tk.Button(
             diag_frame,
+            text="Analyze Art",
+            command=self.analyze_art,
+        ).grid(row=row, column=0, pady=2, sticky="w")
+        row += 1
+        tk.Button(
+            diag_frame,
             text="Extract & move art",
             command=self.move_art_to_art_folders,
         ).grid(row=row, column=0, pady=2, sticky="w")
@@ -2951,6 +2957,154 @@ class App:
                 missing.add(idx)
 
         return missing
+
+    def _format_art_issue_label(
+        self,
+        idx: int,
+        items: Sequence[Mapping[str, Any]],
+        pairs: Sequence[Mapping[str, Any]],
+    ) -> str:
+        item = items[idx] if idx < len(items) else {}
+        pair = pairs[idx] if idx < len(pairs) else {}
+        template = (
+            pair.get("template")
+            or item.get("templateName")
+            or item.get("template")
+            or "<template>"
+        )
+        art_id = (
+            pair.get("art_id")
+            or item.get("art_id")
+            or item.get("artID")
+            or item.get("artName")
+            or "<art>"
+        )
+        return f"Row {idx + 1}: {template} — {art_id}"
+
+    def compute_art_template_mismatches(
+        self,
+        items: Sequence[Mapping[str, Any]] | None = None,
+        pairs: Sequence[Mapping[str, Any]] | None = None,
+    ) -> list[str]:
+        """Return mismatch descriptions when art does not match the template."""
+
+        if items is None or pairs is None:
+            default_pairs, default_items = self._get_pairs_and_items()
+            if items is None:
+                items = default_items
+            if pairs is None:
+                pairs = default_pairs
+
+        item_list = list(items or [])
+        pair_list = list(pairs or [])
+        if not item_list and not pair_list:
+            return []
+
+        art_default = str(self.art_dir_var.get() or "").strip()
+        month_default = str(self.month_dir_var.get() or "").strip()
+        order_default = str(self.order_id_var.get() or "").strip()
+
+        mismatches: list[str] = []
+        total = max(len(item_list), len(pair_list))
+        for idx in range(total):
+            item = item_list[idx] if idx < len(item_list) else {}
+            pair = pair_list[idx] if idx < len(pair_list) else {}
+
+            if pair.get("skip"):
+                continue
+
+            template = str(
+                pair.get("template")
+                or item.get("templateName")
+                or item.get("template")
+                or ""
+            ).strip()
+            expected_template = str(
+                item.get("templateName")
+                or item.get("template")
+                or template
+            ).strip()
+            if template and expected_template and template.lower() != expected_template.lower():
+                mismatches.append(
+                    f"{self._format_art_issue_label(idx, item_list, pair_list)}"
+                    f" (expected template {expected_template})"
+                )
+                continue
+
+            art_id = str(
+                pair.get("art_id")
+                or item.get("art_id")
+                or item.get("artID")
+                or ""
+            ).strip()
+            if not art_id:
+                continue
+
+            art_labels = [
+                pair.get("art_path", ""),
+                item.get("art_path", ""),
+                item.get("filename", ""),
+                item.get("artName", ""),
+            ]
+
+            art_root = str(item.get("art_dir") or art_default).strip()
+            month_root = str(item.get("month_dir") or month_default).strip()
+            order_val = pair.get("order_id") or item.get("order_id") or order_default
+            order_id = str(order_val).strip()
+            filename_hint = ""
+            filename_source = item.get("filename") or item.get("artName") or ""
+            if filename_source:
+                filename_hint = sanitize_filename_base(os.path.splitext(str(filename_source))[0])
+
+            if not any(art_id.lower() in str(lbl).lower() for lbl in art_labels if lbl):
+                found = find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+                if found:
+                    art_labels.append(found)
+
+            if not any(art_id.lower() in str(lbl).lower() for lbl in art_labels if lbl):
+                label = self._format_art_issue_label(idx, item_list, pair_list)
+                mismatches.append(f"{label} (art ID not found in filename)")
+
+        return mismatches
+
+    def analyze_art(self):
+        """Run pre-flight checks before extracting and moving art files."""
+
+        items = self.batch_items if self.batch_items else self.items
+        pairs = self.batch_pairs if self.batch_pairs else self.pairs
+
+        if not items and not pairs:
+            messagebox.showwarning("Analyze Art", "Load order data before analyzing art.")
+            return
+
+        missing_art = self.compute_missing_art_indices(items, pairs)
+        if missing_art:
+            details = [
+                self._format_art_issue_label(idx, items, pairs)
+                for idx in sorted(missing_art)
+            ]
+            messagebox.showwarning(
+                "Missing Art Files",
+                "The following entries are missing art files.\n\n"
+                + "\n".join(details)
+                + "\n\nAdd the missing files before continuing.",
+            )
+            return
+
+        mismatches = self.compute_art_template_mismatches(items, pairs)
+        if mismatches:
+            messagebox.showwarning(
+                "Art / Template Mismatch",
+                "Potential mismatches detected between templates and art:\n\n"
+                + "\n".join(mismatches)
+                + "\n\nCorrect these before moving art.",
+            )
+            return
+
+        messagebox.showinfo(
+            "Analyze Art",
+            "All required art files are present and matched to their templates.",
+        )
 
     def check_missing_templates(self):
         """Check all loaded pairs for missing templates and display them."""
