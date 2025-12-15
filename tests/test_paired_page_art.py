@@ -269,6 +269,35 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 msg=f"Logs missing warning: {logs}",
             )
 
+    def test_prefers_unsuffixed_art_over_page1_when_only_single_page_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70002"
+            art_id = "ART123"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            with fitz.open() as doc:
+                doc.new_page()
+                doc.save(base_art)
+
+            page1_path = os.path.join(tmp, f"{art_id}_page1.pdf")
+
+            entries = [
+                {"template": "PO22", "art_path": page1_path},
+                {"template": "PO22B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, page1_path),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "No page 2 art")
+
     def test_find_template_prefers_exact_template_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             po1_path = os.path.join(tmp, "PO1_print 10in -vp.ai")

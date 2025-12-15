@@ -295,6 +295,35 @@ def resolve_paired_page_art(
 
             fallback_art = _resolve_standard_art(entries, contexts, limit, base_idx)
             base_art_path = fallback_art or ""
+            if base_art_path and base_art_path.lower().endswith("_page1.pdf"):
+                unsuffixed_name = os.path.basename(base_art_path)[: -len("_page1.pdf")] + ".pdf"
+                search_dirs: list[str] = []
+                base_dir = os.path.dirname(base_art_path)
+                if base_dir:
+                    search_dirs.append(base_dir)
+                if base_idx is not None and base_idx < len(contexts):
+                    search_dirs.extend(_collect_search_dirs(contexts[base_idx]))
+
+                seen_dirs: set[str] = set()
+                found_unsuffixed = False
+                for directory in search_dirs:
+                    if not directory:
+                        continue
+                    norm = os.path.abspath(directory)
+                    if norm in seen_dirs or not os.path.isdir(directory):
+                        continue
+                    seen_dirs.add(norm)
+                    try:
+                        for name in os.listdir(directory):
+                            if name.lower() == unsuffixed_name.lower():
+                                fallback_art = os.path.join(directory, name)
+                                base_art_path = fallback_art
+                                found_unsuffixed = True
+                                break
+                    except Exception:
+                        continue
+                    if found_unsuffixed:
+                        break
             mate_missing_second_page = False
             if mate_idx is not None and base_art_path:
                 page_count = _pdf_page_count(base_art_path)
