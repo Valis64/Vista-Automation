@@ -81,10 +81,14 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 entries, contexts, logs.append
             )
 
-            self.assertEqual(assignments.get(0), page1)
+            self.assertFalse(assignments)
+            self.assertIn(0, skips)
             self.assertIn(1, skips)
-            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
-            self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
+            self.assertEqual(skip_reasons.get(0), "No PO art found")
+            self.assertEqual(skip_reasons.get(1), "No PO art found")
+            self.assertTrue(
+                any("ignoring extracted _page1 art without matching page2" in msg for msg in logs)
+            )
 
     def test_missing_mate_logs_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,9 +108,9 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 entries, contexts, logs.append
             )
 
-            self.assertEqual(assignments.get(0), page1)
-            self.assertFalse(skips)
-            self.assertFalse(skip_reasons)
+            self.assertFalse(assignments)
+            self.assertIn(0, skips)
+            self.assertEqual(skip_reasons.get(0), "No PO art found")
             self.assertTrue(any("missing mate template" in msg for msg in logs))
 
     def test_case_insensitive_page_names(self):
@@ -267,6 +271,68 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertTrue(
                 any("has only 1 page" in msg for msg in logs),
                 msg=f"Logs missing warning: {logs}",
+            )
+
+    def test_prefers_unsuffixed_art_over_page1_when_only_single_page_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70002"
+            art_id = "ART123"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            with fitz.open() as doc:
+                doc.new_page()
+                doc.save(base_art)
+
+            page1_path = os.path.join(tmp, f"{art_id}_page1.pdf")
+
+            entries = [
+                {"template": "PO22", "art_path": page1_path},
+                {"template": "PO22B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, page1_path),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "No page 2 art")
+
+    def test_rejects_page1_fallback_when_no_page2_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70003"
+            art_id = "ARTPAGE1"
+            page1_art = os.path.join(tmp, f"{art_id}_page1.pdf")
+            with fitz.open() as doc:
+                doc.new_page()
+                doc.save(page1_art)
+
+            entries = [
+                {"template": "PO23", "art_path": page1_art},
+                {"template": "PO23B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, page1_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertFalse(assignments)
+            self.assertIn(0, skips)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(0), "No PO art found")
+            self.assertEqual(skip_reasons.get(1), "No PO art found")
+            self.assertTrue(
+                any("ignoring _page1 art without matching page2" in msg for msg in logs),
+                msg=f"Logs missing page1 rejection: {logs}",
             )
 
     def test_find_template_prefers_exact_template_code(self):
