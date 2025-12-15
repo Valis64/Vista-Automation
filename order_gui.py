@@ -512,14 +512,30 @@ def extract_art_id(text: str) -> str:
     if not text:
         return ""
 
+    def _looks_like_order_prefix(token: str) -> bool:
+        upper = token.upper()
+        if "VISTA" in upper:
+            return True
+        if re.fullmatch(r"\d{5,}", token):
+            return True
+        if upper.startswith("RT") and re.search(r"\d", token):
+            return True
+        if upper.startswith("ORDER"):
+            return True
+        return False
+
     # Break apart by common separators so tokens like ``NAME_CODE_EXTRA`` are
     # handled in addition to ``NAME - CODE - EXTRA``.
     tokens = re.split(r"[\s_-]+", text.strip())
+    matches: list[str] = []
     for idx, t in enumerate(tokens):
         if re.fullmatch(r"[A-Z0-9]{10}", t, re.I):
-            if idx == 0 and len(tokens) > 1:
-                continue
-            return t
+            matches.append(t)
+            if not _looks_like_order_prefix(t):
+                return t
+
+    if matches:
+        return matches[0]
 
     # Fallback: grab the first 10-character alphanumeric sequence anywhere in
     # the string so even unusual formats still yield something sensible.
