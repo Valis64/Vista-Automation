@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import traceback
 from typing import Callable, Sequence
 
@@ -43,6 +44,16 @@ def _collect_search_dirs(ctx: dict) -> list[str]:
         seen.add(norm)
         ordered.append(path)
     return ordered
+
+
+def _parse_base_id(path: str) -> str:
+    if not path:
+        return ""
+    stem, _ = os.path.splitext(os.path.basename(path))
+    if not stem:
+        return ""
+    cleaned = re.sub(r"(?:_page|page)(\d+)$", "", stem, flags=re.I)
+    return cleaned
 
 
 def _pdf_page_count(path: str) -> int | None:
@@ -91,7 +102,7 @@ def _resolve_standard_art(
     return find_art_file(art_root, art_id, month_root, order_id, name_hint)
 
 
-def _find_page(folder: str, number: int, stems: Sequence[str]) -> str:
+def _find_page(folder: str, number: int, stems: Sequence[str], expected_id: str = "") -> str:
     suffix = f"_page{number}.pdf"
     suffix_l = suffix.lower()
     legacy = f"page{number}.pdf"
@@ -104,6 +115,9 @@ def _find_page(folder: str, number: int, stems: Sequence[str]) -> str:
             if not os.path.isfile(path):
                 continue
             low = name.lower()
+            base_id = _parse_base_id(path).lower()
+            if expected_id and base_id and base_id != expected_id.lower():
+                continue
             if low == legacy_l:
                 candidates.append((2, path))
                 continue
@@ -129,6 +143,39 @@ def _find_page(folder: str, number: int, stems: Sequence[str]) -> str:
 
 def _has_page(folder: str, stems: Sequence[str]) -> bool:
     return bool(_find_page(folder, 1, stems) or _find_page(folder, 2, stems))
+
+
+def _find_unsuffixed_pdf(
+    folder: str, stems: Sequence[str], expected_id: str = ""
+) -> str:
+    stem_set = [s.lower() for s in stems if s]
+    expected_l = expected_id.lower()
+    candidates: list[tuple[int, str]] = []
+    try:
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path) or not name.lower().endswith(".pdf"):
+                continue
+            base_id = _parse_base_id(path).lower()
+            if not base_id:
+                continue
+            if expected_l and base_id != expected_l:
+                continue
+            priority = 2
+            if stem_set:
+                if base_id == expected_l:
+                    priority = 0
+                elif base_id in stem_set:
+                    priority = 0
+                elif any(base_id.endswith(stem) or stem.endswith(base_id) for stem in stem_set):
+                    priority = 1
+            candidates.append((priority, path))
+    except Exception:
+        return ""
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda item: (item[0], item[1].lower()))
+    return candidates[0][1]
 
 
 def _locate_folder(
@@ -204,6 +251,32 @@ def _build_pair_map(entries: Sequence[dict], limit: int) -> dict[str, list[dict[
     return pair_map
 
 
+def _derive_expected_art_id(
+    entries: Sequence[dict], contexts: Sequence[dict], indices: Sequence[int]
+) -> str:
+    for idx in indices:
+        if idx >= len(contexts):
+            continue
+        art_id = str(contexts[idx].get("art_id") or "").strip()
+        if art_id:
+            return art_id
+    for idx in indices:
+        if idx >= len(entries):
+            continue
+        art_id = str(entries[idx].get("art_id") or "").strip()
+        if art_id:
+            return art_id
+    for idx in indices:
+        if idx >= len(contexts):
+            continue
+        for key in ("art_path",):
+            candidate = str(contexts[idx].get(key) or "")
+            base_id = _parse_base_id(candidate)
+            if base_id:
+                return base_id
+    return ""
+
+
 def resolve_paired_page_art(
     entries: Sequence[dict],
     contexts: Sequence[dict],
@@ -277,38 +350,50 @@ def resolve_paired_page_art(
             if base_code and base_code.lower() not in seen_stems:
                 stems.append(base_code)
                 seen_stems.add(base_code.lower())
-            art_id = ""
+            expected_art_id = _derive_expected_art_id(entries, contexts, indices)
+            art_id = expected_art_id
             for idx in indices:
-                if idx >= limit:
-                    continue
-                art_id = str(contexts[idx].get("art_id") or art_id)
-                if art_id:
+                if idx >= limit or art_id:
                     break
+                art_id = str(contexts[idx].get("art_id") or art_id)
             folder = _locate_folder(base_code, entries, contexts, limit, indices, stems)
             page1 = page2 = ""
             if folder:
                 logger(
                     f"Resolved zip folder for PO pair {base_code}: {folder} (art {art_id or 'unknown'}, mate {mate_label})."
                 )
-                page1 = _find_page(folder, 1, stems)
-                page2 = _find_page(folder, 2, stems)
+                page1 = _find_page(folder, 1, stems, expected_art_id)
+                page2 = _find_page(folder, 2, stems, expected_art_id)
+                unsuffixed = ""
+                if not page2:
+                    unsuffixed = _find_unsuffixed_pdf(folder, stems, expected_art_id)
+                if expected_art_id:
+                    expected_l = expected_art_id.lower()
+                    page1_id = _parse_base_id(page1).lower()
+                    page2_id = _parse_base_id(page2).lower()
+                    unsuffixed_id = _parse_base_id(unsuffixed).lower()
+                    if page1 and page1_id and page1_id != expected_l:
+                        page1 = ""
+                    if page2 and page2_id and page2_id != expected_l:
+                        page2 = ""
+                    if unsuffixed and unsuffixed_id and unsuffixed_id != expected_l:
+                        unsuffixed = ""
+                if unsuffixed:
+                    page1 = unsuffixed
 
             fallback_art = _resolve_standard_art(entries, contexts, limit, base_idx)
             base_art_path = fallback_art or ""
-            mate_missing_second_page = False
-            if mate_idx is not None and base_art_path:
-                page_count = _pdf_page_count(base_art_path)
-                if page_count is not None and page_count < 2:
-                    mate_missing_second_page = True
+            if base_art_path and expected_art_id:
+                if _parse_base_id(base_art_path).lower() != expected_art_id.lower():
                     logger(
-                        f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                        f"Warning: art {base_art_path} does not match expected ID {expected_art_id}; treating as missing."
                     )
-                    mark_skip(mate_idx, "No page 2 art")
-
+                    base_art_path = ""
             if folder and page1:
                 if base_idx is not None and base_idx < len(entries):
                     assignments[base_idx] = page1
                 if mate_idx is not None and mate_idx < len(entries):
+                    mate_missing_second_page = False
                     if mate_missing_second_page:
                         pass
                     elif page2:
@@ -318,6 +403,15 @@ def resolve_paired_page_art(
                             f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}.")
                         mark_skip(mate_idx, "Missing page2.pdf")
             elif fallback_art and base_idx is not None and base_idx < len(entries):
+                mate_missing_second_page = False
+                if mate_idx is not None and base_art_path:
+                    page_count = _pdf_page_count(base_art_path)
+                    if page_count is not None and page_count < 2:
+                        mate_missing_second_page = True
+                        logger(
+                            f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                        )
+                        mark_skip(mate_idx, "No page 2 art")
                 if folder and not page1:
                     logger(
                         f"Warning: page1.pdf not found for {base_code} in {folder}; using standard art instead."
