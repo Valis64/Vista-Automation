@@ -305,6 +305,39 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
             self.assertTrue(any("Resolved zip folder" in msg for msg in logs))
 
+    def test_unsuffixed_selected_when_other_page1_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "71500"
+            art_id = "RIGHT_ONE"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+
+            unsuffixed = os.path.join(folder, f"{art_id}.pdf")
+            other_page1 = os.path.join(folder, "OTHER_page1.pdf")
+
+            doc = fitz.open()
+            try:
+                doc.new_page()
+                doc.save(unsuffixed)
+            finally:
+                doc.close()
+
+            with open(other_page1, "w", encoding="utf-8"):
+                pass
+
+            entries = [{"template": "PO31", "art_path": ""}]
+            contexts = [self._build_context(art_id, order_id, tmp)]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), unsuffixed)
+            self.assertNotEqual(assignments.get(0), other_page1)
+            self.assertFalse(skips)
+            self.assertFalse(skip_reasons)
+
     def test_rejects_page1_from_other_art_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "72000"
@@ -335,6 +368,46 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertIn(1, skips)
             self.assertEqual(skip_reasons.get(0), "No PO art found")
             self.assertEqual(skip_reasons.get(1), "No PO art found")
+
+    def test_single_page_unsuffixed_skips_mate_with_other_page1_nearby(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "72500"
+            art_id = "SINGLE_NEARBY"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+
+            unsuffixed = os.path.join(folder, f"{art_id}.pdf")
+            other_page1 = os.path.join(folder, "NEIGHBOR_page1.pdf")
+
+            doc = fitz.open()
+            try:
+                doc.new_page()
+                doc.save(unsuffixed)
+            finally:
+                doc.close()
+
+            with open(other_page1, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO32", "art_path": ""},
+                {"template": "PO32B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), unsuffixed)
+            self.assertNotIn(other_page1, assignments.values())
+            self.assertNotIn(1, assignments)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
 
     def test_find_template_prefers_exact_template_code(self):
         with tempfile.TemporaryDirectory() as tmp:
