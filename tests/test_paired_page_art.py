@@ -269,6 +269,73 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 msg=f"Logs missing warning: {logs}",
             )
 
+    def test_prefers_unsuffixed_single_page_over_page1(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "71000"
+            art_id = "UNSUFFIXED"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+
+            unsuffixed = os.path.join(folder, f"{art_id}.pdf")
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            for path in (unsuffixed, page1):
+                doc = fitz.open()
+                try:
+                    doc.new_page()
+                    doc.save(path)
+                finally:
+                    doc.close()
+
+            entries = [
+                {"template": "PO30", "art_path": ""},
+                {"template": "PO30B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertEqual(assignments.get(0), unsuffixed)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
+            self.assertTrue(any("Resolved zip folder" in msg for msg in logs))
+
+    def test_rejects_page1_from_other_art_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "72000"
+            art_id = "RIGHTID"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+
+            wrong_page = os.path.join(folder, "WRONG_page1.pdf")
+            with open(wrong_page, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO31", "art_path": ""},
+                {"template": "PO31B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons = resolve_paired_page_art(
+                entries, contexts, logs.append
+            )
+
+            self.assertFalse(assignments)
+            self.assertIn(0, skips)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(0), "No PO art found")
+            self.assertEqual(skip_reasons.get(1), "No PO art found")
+
     def test_find_template_prefers_exact_template_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             po1_path = os.path.join(tmp, "PO1_print 10in -vp.ai")

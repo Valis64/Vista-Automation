@@ -747,16 +747,28 @@ def find_art_file(
 
     art_id_l = art_id.lower()
     name_hint_l = name_hint.lower()
+    candidates: list[tuple[int, str]] = []
     for sroot in search_dirs:
         for dirpath, _, files in os.walk(sroot):
             for name in files:
                 if not name.lower().endswith((".ai", ".pdf")):
                     continue
+                path = os.path.join(dirpath, name)
                 low = name.lower()
-                if art_id and art_id_l in low:
-                    return os.path.join(dirpath, name)
+                base, _ = os.path.splitext(low)
+                base_id = re.sub(r"(?:_page|page)(\d+)$", "", base)
+                if art_id:
+                    if art_id_l == base_id:
+                        candidates.append((0, path))
+                        continue
+                    if art_id_l in base_id:
+                        candidates.append((1, path))
+                        continue
                 if name_hint and name_hint_l in low:
-                    return os.path.join(dirpath, name)
+                    candidates.append((2, path))
+    if candidates:
+        candidates.sort(key=lambda item: (item[0], item[1].lower()))
+        return candidates[0][1]
     return ""
 
 
