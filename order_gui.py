@@ -315,6 +315,10 @@ def _guess_flat_filename(
 
     order_id = str(candidate.get("order_id") or "").strip().lower()
     art_id = str(candidate.get("art_id") or "").strip().lower()
+    art_path = str(candidate.get("art_path") or "").strip()
+    art_basename = ""
+    if art_path:
+        art_basename = os.path.splitext(os.path.basename(art_path))[0].strip().lower()
     template = str(candidate.get("template") or "").strip().lower()
     company = str(candidate.get("company") or "").strip().lower()
     created_by = str(candidate.get("created_by") or "").strip().lower()
@@ -339,8 +343,14 @@ def _guess_flat_filename(
     ]
     optional_tokens.extend(tok for tok in fallback_tokens if tok not in optional_tokens)
 
-    best_name = ""
-    best_score = -1
+    def _normalize_base(value: str) -> str:
+        return re.sub(r"[\s_-]+", "", value.strip().lower())
+
+    filename_base = _normalize_base(fallback_base)
+    required_token = art_id or art_basename
+
+    exact_matches: list[str] = []
+    scored_candidates: list[tuple[str, int]] = []
     for name in entries:
         if excluded and name in excluded:
             continue
@@ -349,13 +359,36 @@ def _guess_flat_filename(
             continue
         if order_id and order_id not in lower:
             continue
+        if required_token and required_token not in lower:
+            continue
+        base = lower[: -len(suffix)]
+        if filename_base and _normalize_base(base) == filename_base:
+            exact_matches.append(name)
+            continue
         score = 0
         for token in optional_tokens:
             if token and token in lower:
                 score += 1
+        scored_candidates.append((name, score))
+
+    if exact_matches:
+        if len(exact_matches) == 1:
+            return exact_matches[0]
+        return ""
+
+    best_name = ""
+    best_score = -1
+    tied = False
+    for name, score in scored_candidates:
         if score > best_score:
             best_name = name
             best_score = score
+            tied = False
+        elif score == best_score and score >= 0:
+            tied = True
+
+    if tied:
+        return ""
 
     return best_name
 
