@@ -153,8 +153,8 @@ def apply_summary_overrides(
     if not info_list or not summary_entries:
         return list(info_list)
 
-    pair_lookup: dict[int, str] = {}
-    art_lookup: dict[str, str] = {}
+    pair_lookup: dict[int, tuple[str, str | None]] = {}
+    art_lookup: dict[str, tuple[str, str | None]] = {}
 
     for entry in summary_entries:
         if not isinstance(entry, Mapping):
@@ -162,6 +162,13 @@ def apply_summary_overrides(
         flat_path = entry.get("flat") or entry.get("flat_path")
         if not isinstance(flat_path, str) or not flat_path:
             continue
+
+        art_path = entry.get("art_path") or entry.get("artPath")
+        entry_art_path: str | None
+        if isinstance(art_path, str) and art_path:
+            entry_art_path = art_path
+        else:
+            entry_art_path = None
 
         pair_val = entry.get("pair") or entry.get("pair_index")
         pair_num: int | None = None
@@ -173,13 +180,12 @@ def apply_summary_overrides(
             except ValueError:
                 pair_num = None
         if pair_num:
-            pair_lookup[pair_num] = flat_path
+            pair_lookup[pair_num] = (flat_path, entry_art_path)
 
-        art_path = entry.get("art_path") or entry.get("artPath")
-        if isinstance(art_path, str) and art_path:
-            norm = _normalize_summary_path(art_path)
+        if entry_art_path:
+            norm = _normalize_summary_path(entry_art_path)
             if norm:
-                art_lookup[norm] = flat_path
+                art_lookup[norm] = (flat_path, entry_art_path)
 
     if not pair_lookup and not art_lookup:
         return list(info_list)
@@ -191,17 +197,25 @@ def apply_summary_overrides(
             continue
 
         override_path = None
+        override_art_path = None
         if idx < len(pair_indices):
             pair_num = pair_indices[idx] + 1
-            override_path = pair_lookup.get(pair_num)
+            pair_override = pair_lookup.get(pair_num)
+            if pair_override:
+                override_path, override_art_path = pair_override
 
         if not override_path:
             norm_art = _normalize_summary_path(info[7])
             if norm_art:
-                override_path = art_lookup.get(norm_art)
+                art_override = art_lookup.get(norm_art)
+                if art_override:
+                    override_path, override_art_path = art_override
 
         if override_path:
-            info = (override_path,) + info[1:]
+            flat_path, order_id, pair_num, art_id, glue, templ, lam, art_path = info
+            if override_art_path:
+                art_path = override_art_path
+            info = (override_path, order_id, pair_num, art_id, glue, templ, lam, art_path)
         updated.append(info)
 
     return updated
@@ -4416,4 +4430,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
