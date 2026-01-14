@@ -380,7 +380,7 @@ class ReviewManager:
                     art_label.grid(row=0, column=0, sticky="nsew")
                     art_w, art_h = 800, 600
 
-                self._build_buttons(path, art_id, art_path)
+                self._build_buttons(flat_path, art_id, art_path)
 
                 total_w = img_w + art_w + self.status_bar.winfo_reqwidth()
                 total_h = max(img_h, art_h)
