@@ -53,6 +53,7 @@ var PROGRESS_FILE = 'jsx_progress.txt';
 var PAUSE_FILE = 'jsx_pause.flag';
 var CANCEL_FILE = 'jsx_cancel.flag';
 var SUMMARY_ARTIFACT = 'last_run.json';
+var RUN_ID = '';
 var BLEED_FAILSAFE_SETTINGS = loadBleedFailSafeSettings();
 
 var CANCEL_REQUESTED = false;
@@ -279,6 +280,9 @@ function writeSummaryArtifact(folder, items) {
         if (generated) {
             lines.push('  "generated_at": "' + jsonEscape(generated) + '",');
         }
+        if (RUN_ID) {
+            lines.push('  "run_id": "' + jsonEscape(RUN_ID) + '",');
+        }
         lines.push('  "pairs": [');
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
@@ -422,6 +426,9 @@ function loadInitialOrder() {
         }
         if (obj && typeof obj.preserve_color_profile !== 'undefined') {
             PRESERVE_COLOR_PROFILE = !!obj.preserve_color_profile;
+        }
+        if (obj && typeof obj.run_id !== 'undefined') {
+            RUN_ID = obj.run_id || '';
         }
         return obj;
     }
