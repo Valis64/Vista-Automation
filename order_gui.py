@@ -2032,6 +2032,20 @@ class App:
         # Persist unresolved flagged items
         if hasattr(self, "review"):
             save_flags(self.review.flagged_items)
+        try:
+            ensure_summary_dir()
+            artifact_paths = [
+                SUMMARY_ARTIFACT_PATH,
+                SUMMARY_DIR / "Automation Summary.txt",
+            ]
+            for path in artifact_paths:
+                if path.exists():
+                    path.unlink()
+        except Exception as exc:
+            self.log_message(f"Unable to clear summary artifacts: {exc}")
+        self.pending_flat_info = []
+        self.pending_flat_paths = []
+        self.pending_flat_pairs = []
         self.root.quit()
 
     def show_about(self):
