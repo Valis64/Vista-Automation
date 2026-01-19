@@ -29,6 +29,7 @@ import threading
 import math
 import shutil
 import fitz
+import uuid
 from utils.po_art import resolve_paired_page_art
 from loading_window import LoadingWindow
 from utils.common import (
@@ -124,17 +125,8 @@ def _normalize_summary_path(path: str) -> str:
 
 
 def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, Any]]:
-    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
-    try:
-        with target.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except FileNotFoundError:
-        return []
-    except Exception:
-        traceback.print_exc()
-        return []
-
-    pairs = data.get("pairs")
+    data = load_summary_artifact(path)
+    pairs = data.get("pairs") if isinstance(data, dict) else None
     if not isinstance(pairs, list):
         return []
 
@@ -143,6 +135,22 @@ def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, An
         if isinstance(entry, Mapping):
             result.append(entry)
     return result
+
+
+def load_summary_artifact(path: Path | None = None) -> dict[str, Any]:
+    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        traceback.print_exc()
+        return {}
+
+    if isinstance(data, dict):
+        return data
+    return {}
 
 
 def apply_summary_overrides(
@@ -735,6 +743,7 @@ def parse_order_json(text: str) -> dict:
             "show_summary": obj.get("show_summary", False),
             "summary_dir": obj.get("summary_dir", ""),
             "order_info": obj.get("order_info", {}),
+            "run_id": obj.get("run_id", ""),
         }
     if isinstance(obj, list):
         return {
@@ -1413,6 +1422,8 @@ class App:
         self.missing_cut_log: scrolledtext.ScrolledText | None = None
         self.sample_copy_info: list[tuple[str, str]] = []
         self.run_start_time: float | None = None
+        self.last_run_start_time: float | None = None
+        self.run_id: str | None = None
         self.total_time_var = tk.StringVar(value="Total time: 0s")
         self.pairs_window: tk.Toplevel | None = None
         self.pairs_tree: ttk.Treeview | None = None
@@ -3475,6 +3486,7 @@ class App:
                     "company": self.order_info_vars["company"].get(),
                     "created_by": self.order_info_vars["sales_rep"].get(),
                 },
+                "run_id": self.run_id or "",
             }
         )
         self.save_settings()
@@ -4233,7 +4245,33 @@ class App:
             messagebox.showerror("Error", f"Queue login failed: {exc}")
 
     def _apply_summary_overrides(self) -> None:
-        entries = load_flat_summary_artifact()
+        artifact_path = SUMMARY_ARTIFACT_PATH
+        if not artifact_path.exists():
+            return
+        if self.last_run_start_time is not None:
+            try:
+                if artifact_path.stat().st_mtime < self.last_run_start_time:
+                    return
+            except Exception:
+                return
+
+        data = load_summary_artifact(artifact_path)
+        if not data:
+            return
+
+        artifact_run_id = data.get("run_id") or data.get("runId")
+        if self.run_id:
+            if not artifact_run_id or artifact_run_id != self.run_id:
+                return
+
+        pairs = data.get("pairs")
+        if not isinstance(pairs, list):
+            return
+
+        entries: list[Mapping[str, Any]] = []
+        for entry in pairs:
+            if isinstance(entry, Mapping):
+                entries.append(entry)
         if not entries:
             return
 
@@ -4256,6 +4294,12 @@ class App:
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
+
+        self.run_start_time = time.time()
+        self.last_run_start_time = self.run_start_time
+        self.run_id = uuid.uuid4().hex
+        self.root.after(0, self.update_timer)
+
         # Update current item edits
         cur = items_src[self.index]
         for key, txt in self.fields.items():
@@ -4399,14 +4443,21 @@ class App:
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
+                "run_id": self.run_id or "",
             }
         )
         self.save_settings()
         if self.html_content:
             save_order_html(self.html_content)
 
+        try:
+            ensure_summary_dir()
+            if SUMMARY_ARTIFACT_PATH.exists():
+                SUMMARY_ARTIFACT_PATH.unlink()
+        except Exception as exc:
+            self.log_message(f"Unable to clear summary artifact: {exc}")
+
         loader = LoadingWindow(self.root, items, pair_orders)
-        self.run_start_time = None
 
         def worker():
             try:
@@ -4415,6 +4466,7 @@ class App:
                 def progress_hook(msg: str):
                     if self.run_start_time is None:
                         self.run_start_time = time.time()
+                        self.last_run_start_time = self.run_start_time
                         self.root.after(0, self.update_timer)
                     self.root.after(0, loader.update_status, msg)
 
