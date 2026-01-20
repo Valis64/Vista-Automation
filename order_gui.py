@@ -1720,6 +1720,7 @@ class App:
         self.diagnostic_var = tk.BooleanVar(value=False)
         self.review_flats_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
+        self.convert_profile_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
         self.pending_flat_pairs: list[int] = []
         self.pending_flat_info: list[
@@ -1731,6 +1732,7 @@ class App:
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
         self.review_flats_var.set(settings.get("review_flats", False))
         self.preserve_color_var.set(settings.get("preserve_color_profile", False))
+        self.convert_profile_var.set(settings.get("convert_art_color_profile", False))
         self.login_url_var.set(settings.get("login_url", ""))
         self.username_var.set(settings.get("username", ""))
         self.password_var.set(settings.get("password", ""))
@@ -1822,6 +1824,12 @@ class App:
         tk.Checkbutton(opts_frame, text="Show Summary", variable=self.summary_var).grid(row=row, column=0, sticky="w")
         row += 1
         tk.Checkbutton(opts_frame, text="Preserve Color Profile", variable=self.preserve_color_var).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Checkbutton(
+            opts_frame,
+            text="Convert art color profile to template",
+            variable=self.convert_profile_var,
+        ).grid(row=row, column=0, sticky="w")
 
         row = 0
         tk.Checkbutton(
@@ -2682,6 +2690,7 @@ class App:
             "diagnostic_mode": self.diagnostic_var.get(),
             "review_flats": self.review_flats_var.get(),
             "preserve_color_profile": self.preserve_color_var.get(),
+            "convert_art_color_profile": self.convert_profile_var.get(),
         }
         save_settings(data)
 
@@ -3495,6 +3504,7 @@ class App:
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
+                "convert_art_color_profile": self.convert_profile_var.get(),
                 "order_info": {
                     "order_id": self.order_info_vars["order_id"].get(),
                     "company": self.order_info_vars["company"].get(),
@@ -4457,6 +4467,7 @@ class App:
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
+                "convert_art_color_profile": self.convert_profile_var.get(),
                 "run_id": self.run_id or "",
             }
         )
