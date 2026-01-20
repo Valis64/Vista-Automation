@@ -48,6 +48,8 @@ var ART_ROOT = '\\MCI2NAS/Art server';
 var SHOW_SUMMARY = false;
 var DIAGNOSTIC_MODE = false;
 var PRESERVE_COLOR_PROFILE = false;
+var CONVERT_ART_COLOR_PROFILE = false;
+var COLOR_PROFILE_CONVERSIONS = 0;
 var PRINT_FOLDER_NAME = 'print';
 var PROGRESS_FILE = 'jsx_progress.txt';
 var PAUSE_FILE = 'jsx_pause.flag';
@@ -426,6 +428,9 @@ function loadInitialOrder() {
         }
         if (obj && typeof obj.preserve_color_profile !== 'undefined') {
             PRESERVE_COLOR_PROFILE = !!obj.preserve_color_profile;
+        }
+        if (obj && typeof obj.convert_art_color_profile !== 'undefined') {
+            CONVERT_ART_COLOR_PROFILE = !!obj.convert_art_color_profile;
         }
         if (obj && typeof obj.run_id !== 'undefined') {
             RUN_ID = obj.run_id || '';
@@ -1573,7 +1578,8 @@ function main() {
 
     var summary = 'Processed ' + summaryItems.length + ' pair';
     if (summaryItems.length !== 1) summary += 's';
-    summary += '\n\n';
+    summary += '\n';
+    summary += 'Color profiles converted: ' + COLOR_PROFILE_CONVERSIONS + '\n\n';
     for (var si = 0; si < summaryItems.length; si++) {
         var it = summaryItems[si];
         if (it.skip) {
@@ -1701,15 +1707,17 @@ function processPair(pair, index) {
     if (artworkDoc.documentColorSpace !== templateDoc.documentColorSpace) {
         var artSpace = artworkDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
         var tempSpace = templateDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
-        if (PRESERVE_COLOR_PROFILE) {
+        if (PRESERVE_COLOR_PROFILE || !CONVERT_ART_COLOR_PROFILE) {
             alertAndExit('Color mode mismatch: artwork is ' + artSpace + ' but template is ' + tempSpace);
         } else {
             writeProgress('  Converting artwork to ' + tempSpace);
             artworkDoc.activate();
             if (templateDoc.documentColorSpace == DocumentColorSpace.CMYK) {
                 app.executeMenuCommand('doc-color-cmyk');
+                COLOR_PROFILE_CONVERSIONS += 1;
             } else {
                 app.executeMenuCommand('doc-color-rgb');
+                COLOR_PROFILE_CONVERSIONS += 1;
             }
         }
     }
