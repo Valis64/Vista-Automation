@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import simpledialog
+from tkinter import messagebox, simpledialog
 
 # Determine application directory similar to order_gui
 if getattr(sys, "frozen", False):
@@ -234,6 +234,7 @@ class ReviewManager:
                 self.win = tk.Toplevel(manager.app.root)
                 self.win.title("Flat Review")
                 self.win.attributes("-topmost", True)
+                self.win.protocol("WM_DELETE_WINDOW", self._confirm_close)
                 try:
                     big = tkfont.nametofont("TkDefaultFont").copy()
                     big.configure(size=big.cget("size") + 3)
@@ -300,6 +301,13 @@ class ReviewManager:
                     self.finish()
 
             def finish(self) -> None:
+                self._complete_review()
+
+            def _confirm_close(self) -> None:
+                if messagebox.askyesno("End Review", "End the flat review? Any flags will be saved.", parent=self.win):
+                    self._complete_review()
+
+            def _complete_review(self) -> None:
                 self.win.destroy()
                 manager.flat_review_complete(self.flagged)
 
