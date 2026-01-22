@@ -4450,6 +4450,13 @@ class App:
                 continue
             if not flat_path or not info or not info[0]:
                 continue
+            if not os.path.isfile(flat_path):
+                order_id = info[1] if len(info) > 1 else ""
+                display_order = f" (Order {order_id})" if order_id else ""
+                self.log_message(
+                    f"Missing flat export{display_order}: {flat_path}"
+                )
+                continue
             filtered_flat_entries.append((idx, flat_path, info))
 
         self.pending_flat_pairs = [idx for idx, _, _ in filtered_flat_entries]
