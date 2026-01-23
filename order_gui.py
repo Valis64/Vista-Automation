@@ -4550,6 +4550,16 @@ class App:
                 if self.review_flats_var.get():
                     def _start_review():
                         self._apply_summary_overrides()
+                        if not self.pending_flat_info:
+                            self.log_message(
+                                "Flat review skipped: no flat PDFs were available."
+                            )
+                            messagebox.showinfo(
+                                "No Flat PDFs",
+                                "No flat PDFs were available for review. "
+                                "If any exports were missing, see the log for details.",
+                            )
+                            return
                         self.review.start_flat_review(self.pending_flat_info)
 
                     self.root.after(0, _start_review)
