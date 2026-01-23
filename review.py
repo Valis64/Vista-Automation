@@ -345,6 +345,7 @@ class ReviewManager:
                 for w in self.art_holder.winfo_children():
                     w.destroy()
 
+                self.pdf_label.bind("<Double-Button-1>", lambda e, p=flat_path: manager.app.open_in_illustrator(p))
                 try:
                     import fitz
                     from PIL import Image, ImageTk
@@ -356,12 +357,14 @@ class ReviewManager:
                     photo = ImageTk.PhotoImage(img)
                     self.pdf_label.configure(image=photo)
                     self.pdf_label.image = photo
-                    self.pdf_label.bind("<Double-Button-1>", lambda e, p=flat_path: manager.app.open_in_illustrator(p))
                     img_w, img_h = pix.width, pix.height
-                except Exception:
-                    self.pdf_label.configure(text=flat_path)
+                except Exception as exc:
+                    warning_text = f"Preview failed to render.\n{os.path.basename(flat_path)}"
+                    self.pdf_label.configure(text=warning_text, fg="red")
                     self.pdf_label.image = None
                     img_w, img_h = 800, 600
+                    if hasattr(manager.app, "log_message"):
+                        manager.app.log_message(f"Review preview failed for {flat_path}: {exc}")
 
                 art_w = art_h = 0
                 if art_path and os.path.isfile(art_path):
