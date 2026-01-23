@@ -4305,8 +4305,36 @@ class App:
             entries,
         )
         if updated != self.pending_flat_info:
-            self.pending_flat_info = updated
-            self.pending_flat_paths = [info[0] for info in updated if info]
+            filtered_info: list[tuple[str, str, int, str, str, str, str, str]] = []
+            filtered_pairs: list[int] = []
+            missing_paths: list[str] = []
+            for idx, info in enumerate(updated):
+                if not info or len(info) < 1:
+                    continue
+                flat_path = info[0]
+                if not flat_path or not os.path.isfile(flat_path):
+                    order_id = info[1] if len(info) > 1 else ""
+                    display_order = f" (Order {order_id})" if order_id else ""
+                    self.log_message(
+                        f"Missing overridden flat export{display_order}: {flat_path}"
+                    )
+                    missing_paths.append(flat_path or "<unknown>")
+                    continue
+                if idx < len(self.pending_flat_pairs):
+                    filtered_pairs.append(self.pending_flat_pairs[idx])
+                else:
+                    filtered_pairs.append(idx)
+                filtered_info.append(info)
+
+            self.pending_flat_info = filtered_info
+            self.pending_flat_pairs = filtered_pairs
+            self.pending_flat_paths = [info[0] for info in filtered_info]
+            if missing_paths:
+                messagebox.showwarning(
+                    "Missing Flat Exports",
+                    "Some summary overrides were dropped because the flat exports "
+                    "are missing. Please regenerate the flats and try again.",
+                )
 
     def run_illustrator(self):
         self.sample_copy_info.clear()
