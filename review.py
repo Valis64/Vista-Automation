@@ -349,9 +349,9 @@ class ReviewManager:
                 try:
                     import fitz
                     from PIL import Image, ImageTk
-                    doc = fitz.open(flat_path)
-                    page = doc.load_page(0)
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
+                    with fitz.open(flat_path) as doc:
+                        page = doc.load_page(0)
+                        pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
                     mode = "RGBA" if pix.alpha else "RGB"
                     img = Image.frombytes(mode, [pix.width, pix.height], pix.samples)
                     photo = ImageTk.PhotoImage(img)
@@ -371,9 +371,9 @@ class ReviewManager:
                     try:
                         import fitz
                         from PIL import Image, ImageTk
-                        doc = fitz.open(art_path)
-                        page = doc.load_page(0)
-                        art_pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
+                        with fitz.open(art_path) as doc:
+                            page = doc.load_page(0)
+                            art_pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
                         mode = "RGBA" if art_pix.alpha else "RGB"
                         art_img = Image.frombytes(mode, [art_pix.width, art_pix.height], art_pix.samples)
                         art_photo = ImageTk.PhotoImage(art_img)
