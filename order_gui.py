@@ -242,59 +242,11 @@ def resolve_print_output_folder(
         return ""
 
     path = Path(art_path)
-    parents = path.parents
-
-    code = (template_code or "").strip()
-    name = (template_filename or "").strip()
-
-    def _is_p_series(identifier: str) -> bool:
-        if not identifier:
-            return False
-        cleaned = identifier.strip().upper()
-        if not cleaned:
-            return False
-        if cleaned.startswith("PB"):
-            return False
-        return cleaned.startswith("P")
-
-    is_p_template = _is_p_series(code)
-    if not is_p_template and name:
-        is_p_template = _is_p_series(Path(name).name)
-
-    def _is_po(identifier: str) -> bool:
-        cleaned = (identifier or "").strip().upper()
-        return cleaned.startswith("PO") if cleaned else False
-
-    is_po_template = _is_po(code)
-    if not is_po_template and name:
-        is_po_template = _is_po(Path(name).name)
-
-    def _is_extracted_page_path(p: Path) -> bool:
-        """Return ``True`` when ``p`` looks like an extracted PO page path."""
-
-        name = p.name.lower()
-        if re.search(r"page\d+\.pdf$", name):
-            return True
-
-        parent = p.parent
-        parent_name = parent.name.lower()
-        if parent.suffix.lower() == ".pdf":
-            return True
-
-        return parent_name.endswith("_pages") or parent_name.endswith("_extracts")
-
-    if is_po_template:
-        target_index = 2 if _is_extracted_page_path(path) else 1
-    else:
-        target_index = 1
-
-    try:
-        root = parents[target_index]
-    except IndexError:
-        if parents:
-            root = parents[len(parents) - 1]
-        else:
-            root = path.parent
+    root = path.parent
+    if root is not None:
+        root = root.parent
+    if root is None:
+        root = path.parent
 
     folder_name = DIAGNOSTIC_PRINT_FOLDER_NAME if diagnostic else PRINT_FOLDER_NAME
     return str(root / folder_name)
