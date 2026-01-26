@@ -371,7 +371,7 @@ def prepare_flat_review_entries(
     ] = []
     sample_entries: list[tuple[int, str, str]] = []
     order_counts: dict[str, int] = {}
-    used_flat_paths: set[str] = set()
+    used_flat_paths: dict[str, set[str]] = {}
 
     for candidate in candidates:
         idx = candidate.get("idx")
@@ -410,17 +410,18 @@ def prepare_flat_review_entries(
             sequence = 0
 
         if print_folder and flat_path and not os.path.exists(flat_path):
+            used_flat_names = used_flat_paths.setdefault(print_folder, set())
             resolved_name = _guess_flat_filename(
                 print_folder,
                 paper,
                 candidate,
                 sequence,
                 filename_base,
-                exclude=used_flat_paths,
+                exclude=used_flat_names,
             )
             if resolved_name:
                 flat_path = os.path.join(print_folder, resolved_name)
-                used_flat_paths.add(resolved_name)
+                used_flat_names.add(resolved_name)
         seq_for_info = order_counts.get(order_id, sequence if sequence else 0)
 
         info = (
