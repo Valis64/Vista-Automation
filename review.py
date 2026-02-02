@@ -305,7 +305,7 @@ class ReviewManager:
 
             def _load_current(self) -> None:
                 (
-                    path,
+                    flat_path,
                     order_id,
                     pair_num,
                     art_id,
@@ -340,7 +340,7 @@ class ReviewManager:
                 try:
                     import fitz
                     from PIL import Image, ImageTk
-                    doc = fitz.open(path)
+                    doc = fitz.open(flat_path)
                     page = doc.load_page(0)
                     pix = page.get_pixmap(matrix=fitz.Matrix(1.12, 1.12))
                     mode = "RGBA" if pix.alpha else "RGB"
@@ -348,10 +348,10 @@ class ReviewManager:
                     photo = ImageTk.PhotoImage(img)
                     self.pdf_label.configure(image=photo)
                     self.pdf_label.image = photo
-                    self.pdf_label.bind("<Double-Button-1>", lambda e, p=path: manager.app.open_in_illustrator(p))
+                    self.pdf_label.bind("<Double-Button-1>", lambda e, p=flat_path: manager.app.open_in_illustrator(p))
                     img_w, img_h = pix.width, pix.height
                 except Exception:
-                    self.pdf_label.configure(text=path)
+                    self.pdf_label.configure(text=flat_path)
                     self.pdf_label.image = None
                     img_w, img_h = 800, 600
 
@@ -380,7 +380,7 @@ class ReviewManager:
                     art_label.grid(row=0, column=0, sticky="nsew")
                     art_w, art_h = 800, 600
 
-                self._build_buttons(path, art_id, art_path)
+                self._build_buttons(flat_path, art_id, art_path)
 
                 total_w = img_w + art_w + self.status_bar.winfo_reqwidth()
                 total_h = max(img_h, art_h)
@@ -489,4 +489,3 @@ class ReviewManager:
                 ).grid(row=1, column=1, padx=5, pady=3)
 
         Reviewer(info_list)
-

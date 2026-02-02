@@ -29,6 +29,7 @@ import threading
 import math
 import shutil
 import fitz
+import uuid
 from utils.po_art import resolve_paired_page_art
 from loading_window import LoadingWindow
 from utils.common import (
@@ -124,17 +125,8 @@ def _normalize_summary_path(path: str) -> str:
 
 
 def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, Any]]:
-    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
-    try:
-        with target.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except FileNotFoundError:
-        return []
-    except Exception:
-        traceback.print_exc()
-        return []
-
-    pairs = data.get("pairs")
+    data = load_summary_artifact(path)
+    pairs = data.get("pairs") if isinstance(data, dict) else None
     if not isinstance(pairs, list):
         return []
 
@@ -145,6 +137,22 @@ def load_flat_summary_artifact(path: Path | None = None) -> list[Mapping[str, An
     return result
 
 
+def load_summary_artifact(path: Path | None = None) -> dict[str, Any]:
+    target = Path(path) if path else SUMMARY_ARTIFACT_PATH
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        traceback.print_exc()
+        return {}
+
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
 def apply_summary_overrides(
     info_list: Sequence[tuple[str, str, int, str, str, str, str, str]],
     pair_indices: Sequence[int],
@@ -153,8 +161,8 @@ def apply_summary_overrides(
     if not info_list or not summary_entries:
         return list(info_list)
 
-    pair_lookup: dict[int, str] = {}
-    art_lookup: dict[str, str] = {}
+    pair_lookup: dict[int, tuple[str, str | None]] = {}
+    art_lookup: dict[str, tuple[str, str | None]] = {}
 
     for entry in summary_entries:
         if not isinstance(entry, Mapping):
@@ -162,6 +170,13 @@ def apply_summary_overrides(
         flat_path = entry.get("flat") or entry.get("flat_path")
         if not isinstance(flat_path, str) or not flat_path:
             continue
+
+        art_path = entry.get("art_path") or entry.get("artPath")
+        entry_art_path: str | None
+        if isinstance(art_path, str) and art_path:
+            entry_art_path = art_path
+        else:
+            entry_art_path = None
 
         pair_val = entry.get("pair") or entry.get("pair_index")
         pair_num: int | None = None
@@ -173,13 +188,12 @@ def apply_summary_overrides(
             except ValueError:
                 pair_num = None
         if pair_num:
-            pair_lookup[pair_num] = flat_path
+            pair_lookup[pair_num] = (flat_path, entry_art_path)
 
-        art_path = entry.get("art_path") or entry.get("artPath")
-        if isinstance(art_path, str) and art_path:
-            norm = _normalize_summary_path(art_path)
+        if entry_art_path:
+            norm = _normalize_summary_path(entry_art_path)
             if norm:
-                art_lookup[norm] = flat_path
+                art_lookup[norm] = (flat_path, entry_art_path)
 
     if not pair_lookup and not art_lookup:
         return list(info_list)
@@ -191,17 +205,25 @@ def apply_summary_overrides(
             continue
 
         override_path = None
+        override_art_path = None
         if idx < len(pair_indices):
             pair_num = pair_indices[idx] + 1
-            override_path = pair_lookup.get(pair_num)
+            pair_override = pair_lookup.get(pair_num)
+            if pair_override:
+                override_path, override_art_path = pair_override
 
         if not override_path:
             norm_art = _normalize_summary_path(info[7])
             if norm_art:
-                override_path = art_lookup.get(norm_art)
+                art_override = art_lookup.get(norm_art)
+                if art_override:
+                    override_path, override_art_path = art_override
 
         if override_path:
-            info = (override_path,) + info[1:]
+            flat_path, order_id, pair_num, art_id, glue, templ, lam, art_path = info
+            if override_art_path:
+                art_path = override_art_path
+            info = (override_path, order_id, pair_num, art_id, glue, templ, lam, art_path)
         updated.append(info)
 
     return updated
@@ -301,6 +323,10 @@ def _guess_flat_filename(
 
     order_id = str(candidate.get("order_id") or "").strip().lower()
     art_id = str(candidate.get("art_id") or "").strip().lower()
+    art_path = str(candidate.get("art_path") or "").strip()
+    art_basename = ""
+    if art_path:
+        art_basename = os.path.splitext(os.path.basename(art_path))[0].strip().lower()
     template = str(candidate.get("template") or "").strip().lower()
     company = str(candidate.get("company") or "").strip().lower()
     created_by = str(candidate.get("created_by") or "").strip().lower()
@@ -325,8 +351,14 @@ def _guess_flat_filename(
     ]
     optional_tokens.extend(tok for tok in fallback_tokens if tok not in optional_tokens)
 
-    best_name = ""
-    best_score = -1
+    def _normalize_base(value: str) -> str:
+        return re.sub(r"[\s_-]+", "", value.strip().lower())
+
+    filename_base = _normalize_base(fallback_base)
+    required_token = art_id or art_basename
+
+    exact_matches: list[str] = []
+    scored_candidates: list[tuple[str, int]] = []
     for name in entries:
         if excluded and name in excluded:
             continue
@@ -335,13 +367,36 @@ def _guess_flat_filename(
             continue
         if order_id and order_id not in lower:
             continue
+        if required_token and required_token not in lower:
+            continue
+        base = lower[: -len(suffix)]
+        if filename_base and _normalize_base(base) == filename_base:
+            exact_matches.append(name)
+            continue
         score = 0
         for token in optional_tokens:
             if token and token in lower:
                 score += 1
+        scored_candidates.append((name, score))
+
+    if exact_matches:
+        if len(exact_matches) == 1:
+            return exact_matches[0]
+        return ""
+
+    best_name = ""
+    best_score = -1
+    tied = False
+    for name, score in scored_candidates:
         if score > best_score:
             best_name = name
             best_score = score
+            tied = False
+        elif score == best_score and score >= 0:
+            tied = True
+
+    if tied:
+        return ""
 
     return best_name
 
@@ -688,6 +743,7 @@ def parse_order_json(text: str) -> dict:
             "show_summary": obj.get("show_summary", False),
             "summary_dir": obj.get("summary_dir", ""),
             "order_info": obj.get("order_info", {}),
+            "run_id": obj.get("run_id", ""),
         }
     if isinstance(obj, list):
         return {
@@ -1366,6 +1422,8 @@ class App:
         self.missing_cut_log: scrolledtext.ScrolledText | None = None
         self.sample_copy_info: list[tuple[str, str]] = []
         self.run_start_time: float | None = None
+        self.last_run_start_time: float | None = None
+        self.run_id: str | None = None
         self.total_time_var = tk.StringVar(value="Total time: 0s")
         self.pairs_window: tk.Toplevel | None = None
         self.pairs_tree: ttk.Treeview | None = None
@@ -1662,6 +1720,7 @@ class App:
         self.diagnostic_var = tk.BooleanVar(value=False)
         self.review_flats_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
+        self.convert_profile_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
         self.pending_flat_pairs: list[int] = []
         self.pending_flat_info: list[
@@ -1673,6 +1732,7 @@ class App:
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
         self.review_flats_var.set(settings.get("review_flats", False))
         self.preserve_color_var.set(settings.get("preserve_color_profile", False))
+        self.convert_profile_var.set(settings.get("convert_art_color_profile", False))
         self.login_url_var.set(settings.get("login_url", ""))
         self.username_var.set(settings.get("username", ""))
         self.password_var.set(settings.get("password", ""))
@@ -1764,6 +1824,12 @@ class App:
         tk.Checkbutton(opts_frame, text="Show Summary", variable=self.summary_var).grid(row=row, column=0, sticky="w")
         row += 1
         tk.Checkbutton(opts_frame, text="Preserve Color Profile", variable=self.preserve_color_var).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Checkbutton(
+            opts_frame,
+            text="Convert art color profile to template",
+            variable=self.convert_profile_var,
+        ).grid(row=row, column=0, sticky="w")
 
         row = 0
         tk.Checkbutton(
@@ -1974,6 +2040,20 @@ class App:
         # Persist unresolved flagged items
         if hasattr(self, "review"):
             save_flags(self.review.flagged_items)
+        try:
+            ensure_summary_dir()
+            artifact_paths = [
+                SUMMARY_ARTIFACT_PATH,
+                SUMMARY_DIR / "Automation Summary.txt",
+            ]
+            for path in artifact_paths:
+                if path.exists():
+                    path.unlink()
+        except Exception as exc:
+            self.log_message(f"Unable to clear summary artifacts: {exc}")
+        self.pending_flat_info = []
+        self.pending_flat_paths = []
+        self.pending_flat_pairs = []
         self.root.quit()
 
     def show_about(self):
@@ -2610,6 +2690,7 @@ class App:
             "diagnostic_mode": self.diagnostic_var.get(),
             "review_flats": self.review_flats_var.get(),
             "preserve_color_profile": self.preserve_color_var.get(),
+            "convert_art_color_profile": self.convert_profile_var.get(),
         }
         save_settings(data)
 
@@ -3423,11 +3504,13 @@ class App:
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
+                "convert_art_color_profile": self.convert_profile_var.get(),
                 "order_info": {
                     "order_id": self.order_info_vars["order_id"].get(),
                     "company": self.order_info_vars["company"].get(),
                     "created_by": self.order_info_vars["sales_rep"].get(),
                 },
+                "run_id": self.run_id or "",
             }
         )
         self.save_settings()
@@ -4186,7 +4269,33 @@ class App:
             messagebox.showerror("Error", f"Queue login failed: {exc}")
 
     def _apply_summary_overrides(self) -> None:
-        entries = load_flat_summary_artifact()
+        artifact_path = SUMMARY_ARTIFACT_PATH
+        if not artifact_path.exists():
+            return
+        if self.last_run_start_time is not None:
+            try:
+                if artifact_path.stat().st_mtime < self.last_run_start_time:
+                    return
+            except Exception:
+                return
+
+        data = load_summary_artifact(artifact_path)
+        if not data:
+            return
+
+        artifact_run_id = data.get("run_id") or data.get("runId")
+        if self.run_id:
+            if not artifact_run_id or artifact_run_id != self.run_id:
+                return
+
+        pairs = data.get("pairs")
+        if not isinstance(pairs, list):
+            return
+
+        entries: list[Mapping[str, Any]] = []
+        for entry in pairs:
+            if isinstance(entry, Mapping):
+                entries.append(entry)
         if not entries:
             return
 
@@ -4209,6 +4318,12 @@ class App:
         if not items:
             messagebox.showerror("Error", "No pairs selected")
             return
+
+        self.run_start_time = time.time()
+        self.last_run_start_time = self.run_start_time
+        self.run_id = uuid.uuid4().hex
+        self.root.after(0, self.update_timer)
+
         # Update current item edits
         cur = items_src[self.index]
         for key, txt in self.fields.items():
@@ -4352,14 +4467,22 @@ class App:
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
+                "convert_art_color_profile": self.convert_profile_var.get(),
+                "run_id": self.run_id or "",
             }
         )
         self.save_settings()
         if self.html_content:
             save_order_html(self.html_content)
 
+        try:
+            ensure_summary_dir()
+            if SUMMARY_ARTIFACT_PATH.exists():
+                SUMMARY_ARTIFACT_PATH.unlink()
+        except Exception as exc:
+            self.log_message(f"Unable to clear summary artifact: {exc}")
+
         loader = LoadingWindow(self.root, items, pair_orders)
-        self.run_start_time = None
 
         def worker():
             try:
@@ -4368,6 +4491,7 @@ class App:
                 def progress_hook(msg: str):
                     if self.run_start_time is None:
                         self.run_start_time = time.time()
+                        self.last_run_start_time = self.run_start_time
                         self.root.after(0, self.update_timer)
                     self.root.after(0, loader.update_status, msg)
 
@@ -4416,4 +4540,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
