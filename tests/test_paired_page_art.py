@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import fitz
@@ -649,12 +650,12 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             os.makedirs(print_dir, exist_ok=True)
 
             fallback_names = [
-                "50000_candidate_first_po1_flat_SBS.pdf",
-                "50000_candidate_second_po1_flat_SBS.pdf",
+                f"50000_{art_id}_candidate_alpha_po1_flat_SBS.pdf",
+                f"50000_{art_id}_candidate_beta_po1_flat_SBS.pdf",
             ]
 
-            filename_base_a = "50000 Candidate A"
-            filename_base_b = "50000 Candidate B"
+            filename_base_a = "50000 Candidate Alpha"
+            filename_base_b = "50000 Candidate Beta"
 
             candidates = [
                 {
@@ -721,6 +722,74 @@ class ResolvePairedPageArtTests(unittest.TestCase):
 
             self.assertCountEqual(resolved_paths, expected_paths)
             self.assertEqual(len(set(resolved_paths)), 2)
+
+    def test_flat_fallback_requires_recent_run_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "50500"
+            art_id = "ARTRECENT"
+            template = "PO1"
+            paper = "SBS"
+
+            art_dir = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(art_dir, exist_ok=True)
+            art_path = os.path.join(art_dir, "page1.pdf")
+            with open(art_path, "w", encoding="utf-8"):
+                pass
+
+            print_dir = resolve_print_output_folder(
+                art_path,
+                template,
+                "",
+                diagnostic=False,
+            )
+            os.makedirs(print_dir, exist_ok=True)
+
+            old_name = f"{order_id}_{art_id}_old_candidate_flat_SBS.pdf"
+            new_name = f"{order_id}_{art_id}_new_candidate_flat_SBS.pdf"
+            old_path = os.path.join(print_dir, old_name)
+            new_path = os.path.join(print_dir, new_name)
+            for path in (old_path, new_path):
+                with open(path, "w", encoding="utf-8"):
+                    pass
+
+            run_start_time = time.time()
+            os.utime(old_path, (run_start_time - 10, run_start_time - 10))
+            os.utime(new_path, (run_start_time + 10, run_start_time + 10))
+
+            candidates = [
+                {
+                    "idx": 0,
+                    "filename_base": "50500 Candidate",
+                    "template": template,
+                    "paper": paper,
+                    "order_id": order_id,
+                    "art_id": art_id,
+                    "glue": "",
+                    "lam": "",
+                    "art_path": art_path,
+                    "template_path": "",
+                    "sample": False,
+                    "cut_src": "",
+                    "company": "Example Co",
+                    "created_by": "Tester",
+                }
+            ]
+
+            flat_entries, sample_entries = prepare_flat_review_entries(
+                candidates,
+                {},
+                [],
+                run_start_time=run_start_time,
+                diagnostic=False,
+            )
+
+            self.assertFalse(sample_entries)
+            self.assertEqual(len(flat_entries), 1)
+            _, flat_path, info = flat_entries[0]
+            expected_path = os.path.join(print_dir, new_name)
+
+            self.assertEqual(flat_path, expected_path)
+            self.assertEqual(info[0], expected_path)
 
 
 if __name__ == "__main__":
