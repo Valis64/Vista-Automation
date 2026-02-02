@@ -306,6 +306,7 @@ def _guess_flat_filename(
     candidate: Mapping[str, Any],
     sequence: int,
     fallback_base: str,
+    run_start_time: float | None = None,
     exclude: Iterable[str] | None = None,
 ) -> str:
     """Return an existing ``*_flat_`` filename when metadata is incomplete."""
@@ -359,11 +360,22 @@ def _guess_flat_filename(
 
     exact_matches: list[str] = []
     scored_candidates: list[tuple[str, int]] = []
+    def _is_recent(name: str) -> bool:
+        if run_start_time is None:
+            return True
+        try:
+            mtime = os.path.getmtime(os.path.join(print_folder, name))
+        except OSError:
+            return False
+        return mtime >= run_start_time
+
     for name in entries:
         if excluded and name in excluded:
             continue
         lower = name.lower()
         if not lower.endswith(suffix):
+            continue
+        if not _is_recent(name):
             continue
         if order_id and order_id not in lower:
             continue
@@ -406,6 +418,7 @@ def prepare_flat_review_entries(
     assignments: Mapping[int, str],
     skip_indices: Iterable[int],
     *,
+    run_start_time: float | None = None,
     diagnostic: bool,
 ) -> tuple[
     list[tuple[int, str, tuple[str, str, int, str, str, str, str, str]]],
@@ -464,6 +477,7 @@ def prepare_flat_review_entries(
                 candidate,
                 sequence,
                 filename_base,
+                run_start_time,
                 exclude=used_flat_paths,
             )
             if resolved_name:
@@ -4433,6 +4447,7 @@ class App:
             flat_candidates,
             assignments,
             skip_indices,
+            run_start_time=self.run_start_time,
             diagnostic=self.diagnostic_var.get(),
         )
 
