@@ -54,6 +54,7 @@ from utils.history import (
     record_run_history,
     update_last_run_flagged,
     summarize_history,
+    HISTORY_FILE,
 )
 from review import (
     FlaggedItem,
@@ -62,6 +63,7 @@ from review import (
     save_flags,
     ReviewManager,
     FLAG_REASONS,
+    FLAGS_FILE,
 )
 from utils.version import get_version
 try:
@@ -1878,6 +1880,12 @@ class App:
         row += 1
         tk.Button(
             diag_frame,
+            text="Clear Metadata",
+            command=self.clear_metadata_cache,
+        ).grid(row=row, column=0, pady=2, sticky="w")
+        row += 1
+        tk.Button(
+            diag_frame,
             text="Template Settings",
             command=self.open_template_settings_editor,
         ).grid(row=row, column=0, pady=2, sticky="w")
@@ -2049,25 +2057,30 @@ class App:
         self.total_time_var.set(f"Total time: {int(elapsed)}s")
         self.root.after(1000, self.update_timer)
 
-    def on_exit(self):
-        self.save_settings()
-        # Persist unresolved flagged items
-        if hasattr(self, "review"):
-            save_flags(self.review.flagged_items)
+    def clear_metadata_cache(self):
         try:
             ensure_summary_dir()
             artifact_paths = [
                 SUMMARY_ARTIFACT_PATH,
                 SUMMARY_DIR / "Automation Summary.txt",
+                HISTORY_FILE,
+                FLAGS_FILE,
             ]
             for path in artifact_paths:
                 if path.exists():
                     path.unlink()
         except Exception as exc:
-            self.log_message(f"Unable to clear summary artifacts: {exc}")
+            self.log_message(f"Unable to clear metadata cache: {exc}")
         self.pending_flat_info = []
         self.pending_flat_paths = []
         self.pending_flat_pairs = []
+
+    def on_exit(self):
+        self.save_settings()
+        # Persist unresolved flagged items
+        if hasattr(self, "review"):
+            save_flags(self.review.flagged_items)
+        self.clear_metadata_cache()
         self.root.quit()
 
     def show_about(self):
