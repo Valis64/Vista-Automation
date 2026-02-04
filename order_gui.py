@@ -1881,7 +1881,7 @@ class App:
         tk.Button(
             diag_frame,
             text="Clear Metadata",
-            command=self.clear_metadata_cache,
+            command=lambda: self.clear_metadata_cache(show_popup=True),
         ).grid(row=row, column=0, pady=2, sticky="w")
         row += 1
         tk.Button(
@@ -2057,7 +2057,9 @@ class App:
         self.total_time_var.set(f"Total time: {int(elapsed)}s")
         self.root.after(1000, self.update_timer)
 
-    def clear_metadata_cache(self):
+    def clear_metadata_cache(self, show_popup: bool = False):
+        removed_paths = []
+        had_error = False
         try:
             ensure_summary_dir()
             artifact_paths = [
@@ -2069,8 +2071,19 @@ class App:
             for path in artifact_paths:
                 if path.exists():
                     path.unlink()
+                    removed_paths.append(path)
         except Exception as exc:
+            had_error = True
             self.log_message(f"Unable to clear metadata cache: {exc}")
+        if show_popup and not had_error:
+            if removed_paths:
+                removed_list = "\n".join(f"- {path.name}" for path in removed_paths)
+                messagebox.showinfo(
+                    "Metadata Cleared",
+                    f"Cleared metadata:\n{removed_list}",
+                )
+            else:
+                messagebox.showinfo("Metadata Cleared", "No metadata to clear.")
         self.pending_flat_info = []
         self.pending_flat_paths = []
         self.pending_flat_pairs = []
