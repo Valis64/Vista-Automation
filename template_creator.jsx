@@ -1463,6 +1463,39 @@ function findNamedItem(doc, name) {
     return null;
 }
 
+function normalizeBleedTargetName(name) {
+    if (!name) return '';
+    return String(name).toLowerCase().replace(/[\s_]+/g, '');
+}
+
+function discoverNamedBleedTargets(doc) {
+    var numbered = [];
+    var plainBleed = null;
+    for (var i = 0; i < doc.pageItems.length; i++) {
+        var it = doc.pageItems[i];
+        if (!it || !it.name) continue;
+        var normalized = normalizeBleedTargetName(it.name);
+        var match = normalized.match(/^bleed(\d+)?$/);
+        if (!match) continue;
+        if (match[1]) {
+            numbered.push({ item: it, index: parseInt(match[1], 10) });
+        } else if (!plainBleed) {
+            plainBleed = it;
+        }
+    }
+
+    if (numbered.length) {
+        numbered.sort(function(a, b) {
+            return a.index - b.index;
+        });
+        var sorted = [];
+        for (var j = 0; j < numbered.length; j++) sorted.push(numbered[j].item);
+        return sorted;
+    }
+
+    return plainBleed ? [plainBleed] : [];
+}
+
 function addLaminateLabel(doc, bleedBounds, lamName, lamColorArr) {
     if (!lamName) return;
 
@@ -1731,27 +1764,19 @@ function processPair(pair, index) {
     waitStep();
     writeProgress('  Template bleed located');
 
-    var bleedPaths = [];
-    if (settings.bleedPaths && settings.bleedPaths.length) {
+    var discoveredBleedPaths = discoverNamedBleedTargets(templateDoc);
+    var bleedPaths = discoveredBleedPaths;
+    if (settings.bleedPaths && settings.bleedPaths.length && discoveredBleedPaths.length) {
+        var allowed = {};
         for (var si = 0; si < settings.bleedPaths.length; si++) {
-            var bp = findNamedItem(templateDoc, settings.bleedPaths[si]);
-            if (bp) bleedPaths.push(bp);
+            allowed[normalizeBleedTargetName(settings.bleedPaths[si])] = true;
         }
-    }
-    if (bleedPaths.length === 0) {
-        if (isCD0434) {
-            writeProgress('Detecting coffee sleeve bleed lines');
-            for (var bi = 1; bi <= 12; bi++) {
-                var bp2 = findNamedItem(templateDoc, 'bleed' + bi);
-                if (bp2) bleedPaths.push(bp2);
-            }
-        } else if (isPB001) {
-            writeProgress('Detecting PB001 bleed lines');
-            var bp1 = findNamedItem(templateDoc, 'bleed1');
-            var bp2b = findNamedItem(templateDoc, 'bleed2');
-            if (bp1) bleedPaths.push(bp1);
-            if (bp2b) bleedPaths.push(bp2b);
+        var filtered = [];
+        for (var di = 0; di < discoveredBleedPaths.length; di++) {
+            var candidate = discoveredBleedPaths[di];
+            if (allowed[normalizeBleedTargetName(candidate.name)]) filtered.push(candidate);
         }
+        if (filtered.length) bleedPaths = filtered;
     }
     if (bleedPaths.length === 0) bleedPaths.push(templateBleedPath);
 
