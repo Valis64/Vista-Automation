@@ -95,6 +95,23 @@ PRINT_FOLDER_NAME = "print"
 DIAGNOSTIC_PRINT_FOLDER_NAME = "--DO NOT USE - PRINT--"
 
 
+def _can_enable_template_save(
+    current_code: str | None,
+    unsaved_flag: bool,
+    is_valid: bool,
+) -> bool:
+    return current_code is not None and unsaved_flag and is_valid
+
+
+def _resolve_template_settings_code(
+    current_code: str | None,
+    selection: Sequence[str],
+) -> str | None:
+    if current_code:
+        return current_code
+    return selection[0] if selection else None
+
+
 def ensure_summary_dir():
     """Create summary directory and remove files older than 90 days."""
     SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
@@ -2210,6 +2227,7 @@ class App:
         auto_bleed_var = tk.BooleanVar(value=True)
         status_var = tk.StringVar()
         unsaved = {"flag": False}
+        current_code = {"value": None}
 
         def normalize_bleed_mode(value: str) -> str:
             return "manual" if str(value).strip().lower() == "manual" else "auto"
@@ -2250,8 +2268,8 @@ class App:
             sel = tree.selection()
             if not sel:
                 return
-            code = sel[0]
-            data = load_template_settings(code)
+            selected_code = sel[0]
+            data = load_template_settings(selected_code)
             rotation_var.set(str(data.get("rotation", "")))
             bleed_var.set(", ".join(data.get("bleedPaths", [])))
             mirror_var.set(bool(data.get("mirror", False)))
@@ -2259,10 +2277,11 @@ class App:
             alignment_var.set(str(data.get("alignment", "center")))
             bleed_mode_var.set(normalize_bleed_mode(data.get("bleedMode", "auto")))
             auto_bleed_var.set(bleed_mode_var.get() == "auto")
+            current_code["value"] = selected_code
             unsaved["flag"] = False
             update_state()
-            tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
-            tree.item(code, tags=tags)
+            tags = tuple(t for t in tree.item(selected_code, "tags") if t != "unsaved")
+            tree.item(selected_code, tags=tags)
 
         tree.bind("<<TreeviewSelect>>", load_selected)
 
@@ -2333,14 +2352,12 @@ class App:
             return True
 
         def mark_unsaved(*_):
-            sel = tree.selection()
-            if not sel:
-                return
-            unsaved["flag"] = True
-            item_id = sel[0]
-            tags = tree.item(item_id, "tags")
-            if "unsaved" not in tags:
-                tree.item(item_id, tags=tags + ("unsaved",))
+            item_id = current_code["value"]
+            if item_id:
+                unsaved["flag"] = True
+                tags = tree.item(item_id, "tags")
+                if "unsaved" not in tags:
+                    tree.item(item_id, tags=tags + ("unsaved",))
             update_state()
 
         rotation_var.trace_add("write", mark_unsaved)
@@ -2355,7 +2372,12 @@ class App:
             bleed_mode = normalize_bleed_mode(bleed_mode_var.get())
             is_auto_mode = bleed_mode == "auto"
             bleed_entry.config(state="disabled" if is_auto_mode else "normal")
-            if unsaved["flag"] and validate():
+            can_save = _can_enable_template_save(
+                current_code["value"],
+                unsaved["flag"],
+                validate(),
+            )
+            if can_save:
                 save_btn.config(state="normal")
             else:
                 save_btn.config(state="disabled")
@@ -2368,9 +2390,9 @@ class App:
 
         def save():
             sel = tree.selection()
-            if not sel:
+            code = _resolve_template_settings_code(current_code["value"], sel)
+            if not code:
                 return
-            code = sel[0]
             updates: dict[str, object] = {}
             rot_text = rotation_var.get().strip()
             updates["rotation"] = int(rot_text)
