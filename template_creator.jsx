@@ -1465,7 +1465,7 @@ function findNamedItem(doc, name) {
 
 function normalizeBleedTargetName(name) {
     if (!name) return '';
-    return String(name).toLowerCase().replace(/[\s_]+/g, '');
+    return String(name).toLowerCase().replace(/[\s_\-]+/g, '');
 }
 
 function discoverNamedBleedTargets(doc) {
@@ -1768,23 +1768,44 @@ function processPair(pair, index) {
     writeProgress('  Template bleed located');
 
     var discoveredBleedPaths = discoverNamedBleedTargets(templateDoc);
-    var bleedPaths = discoveredBleedPaths;
-    if (bleedMode === 'manual' && settings.bleedPaths && settings.bleedPaths.length && discoveredBleedPaths.length) {
-        var allowed = {};
+    var bleedPaths = [];
+    if (bleedMode === 'manual') {
+        if (!settings.bleedPaths || !settings.bleedPaths.length) {
+            throw new Error('Manual bleed mode requires settings.bleedPaths for template "' + pair.templateFile.name + '".');
+        }
+
+        var discoveredByName = {};
+        for (var dbi = 0; dbi < discoveredBleedPaths.length; dbi++) {
+            var discoveredItem = discoveredBleedPaths[dbi];
+            discoveredByName[normalizeBleedTargetName(discoveredItem.name)] = discoveredItem;
+        }
+
+        var missingTargets = [];
         for (var si = 0; si < settings.bleedPaths.length; si++) {
-            allowed[normalizeBleedTargetName(settings.bleedPaths[si])] = true;
+            var configuredName = settings.bleedPaths[si];
+            var normalizedConfiguredName = normalizeBleedTargetName(configuredName);
+            var resolvedTarget = discoveredByName[normalizedConfiguredName];
+            if (resolvedTarget) {
+                bleedPaths.push(resolvedTarget);
+            } else {
+                missingTargets.push(String(configuredName));
+            }
         }
-        var filtered = [];
-        for (var di = 0; di < discoveredBleedPaths.length; di++) {
-            var candidate = discoveredBleedPaths[di];
-            if (allowed[normalizeBleedTargetName(candidate.name)]) filtered.push(candidate);
+
+        if (missingTargets.length) {
+            throw new Error(
+                'Manual bleed targets not found in template "' + pair.templateFile.name +
+                '": ' + missingTargets.join(', ') + '.'
+            );
         }
-        if (filtered.length) bleedPaths = filtered;
+    } else {
+        bleedPaths = discoveredBleedPaths;
     }
-    if (bleedMode === 'manual' && (!settings.bleedPaths || !settings.bleedPaths.length)) {
-        writeProgress('Manual bleed mode enabled but no bleedPaths configured; using detected bleed targets.');
+
+    if (bleedPaths.length === 0) {
+        bleedPaths.push(templateBleedPath);
+        writeProgress('No named bleed targets resolved; using legacy largest bleed path fallback.');
     }
-    if (bleedPaths.length === 0) bleedPaths.push(templateBleedPath);
 
     writeProgress('Duplicating artwork');
     for (var bi2 = 0; bi2 < bleedPaths.length; bi2++) {
