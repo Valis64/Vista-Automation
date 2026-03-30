@@ -66,7 +66,13 @@ def _find_template_save_button(top_level: tk.Toplevel) -> tk.Button:
     raise AssertionError("Template settings save button not found")
 
 
-def test_template_editor_save_stays_enabled_without_reselect(tk_root, tmp_path: Path):
+def _select_template_row(tree: ttk.Treeview, code: str, root: tk.Tk) -> None:
+    tree.selection_set(code)
+    tree.event_generate("<<TreeviewSelect>>")
+    root.update()
+
+
+def test_template_editor_changes_independently_enable_save(tk_root, tmp_path: Path):
     schema = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "Template settings",
@@ -110,31 +116,56 @@ def test_template_editor_save_stays_enabled_without_reselect(tk_root, tmp_path: 
         win = next(w for w in tk_root.winfo_children() if isinstance(w, tk.Toplevel))
         tree = _find_template_tree(win)
         save_btn = _find_template_save_button(win)
-
-        assert save_btn.cget("state") == "disabled"
-
-        tree.selection_set(code)
-        tree.event_generate("<<TreeviewSelect>>")
-        tk_root.update()
+        _select_template_row(tree, code, tk_root)
 
         bleed_entry = next(
             widget
             for widget in _walk(win)
             if isinstance(widget, tk.Entry) and widget.get() == "bleed_old"
         )
+        auto_bleed_toggle = next(
+            widget
+            for widget in _walk(win)
+            if isinstance(widget, tk.Checkbutton)
+            and widget.cget("text") == "Auto-detect bleed paths"
+        )
+        alignment_combo = next(
+            widget
+            for widget in _walk(win)
+            if isinstance(widget, ttk.Combobox)
+            and "center" in widget.cget("values")
+        )
+
+        assert save_btn.cget("state") == "disabled"
 
         tree.selection_remove(code)
         tk_root.update()
 
+        # Bleed Paths edit enables Save.
         bleed_entry.delete(0, tk.END)
         bleed_entry.insert(0, "bleed_new")
         tk_root.update()
-
         assert save_btn.cget("state") == "normal"
 
-        save_btn.invoke()
+        _select_template_row(tree, code, tk_root)
+        assert save_btn.cget("state") == "disabled"
+
+        # Auto/manual toggle enables Save.
+        auto_bleed_toggle.invoke()
+        tk_root.update()
+        assert save_btn.cget("state") == "normal"
+
+        _select_template_row(tree, code, tk_root)
+        assert save_btn.cget("state") == "disabled"
+
+        # Alignment change enables Save.
+        alignment_combo.set("top-left")
+        tk_root.update()
+        assert save_btn.cget("state") == "normal"
+
+        save_btn.invoke()  # Persist final change to ensure save remains functional.
         tk_root.update()
         updated = json.loads((tmp_path / f"{code}.json").read_text())
-        assert updated["bleedPaths"] == ["bleed_new"]
+        assert updated["alignment"] == "top-left"
 
         win.destroy()

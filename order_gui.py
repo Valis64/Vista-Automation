@@ -2228,6 +2228,7 @@ class App:
         status_var = tk.StringVar()
         unsaved = {"flag": False}
         current_code = {"value": None}
+        is_loading = {"value": False}
 
         def normalize_bleed_mode(value: str) -> str:
             return "manual" if str(value).strip().lower() == "manual" else "auto"
@@ -2270,15 +2271,19 @@ class App:
                 return
             selected_code = sel[0]
             data = load_template_settings(selected_code)
-            rotation_var.set(str(data.get("rotation", "")))
-            bleed_var.set(", ".join(data.get("bleedPaths", [])))
-            mirror_var.set(bool(data.get("mirror", False)))
-            scale_var.set(str(data.get("artworkScale", "")))
-            alignment_var.set(str(data.get("alignment", "center")))
-            bleed_mode_var.set(normalize_bleed_mode(data.get("bleedMode", "auto")))
-            auto_bleed_var.set(bleed_mode_var.get() == "auto")
-            current_code["value"] = selected_code
-            unsaved["flag"] = False
+            is_loading["value"] = True
+            try:
+                rotation_var.set(str(data.get("rotation", "")))
+                bleed_var.set(", ".join(data.get("bleedPaths", [])))
+                mirror_var.set(bool(data.get("mirror", False)))
+                scale_var.set(str(data.get("artworkScale", "")))
+                alignment_var.set(str(data.get("alignment", "center")))
+                bleed_mode_var.set(normalize_bleed_mode(data.get("bleedMode", "auto")))
+                auto_bleed_var.set(bleed_mode_var.get() == "auto")
+                current_code["value"] = selected_code
+                unsaved["flag"] = False
+            finally:
+                is_loading["value"] = False
             update_state()
             tags = tuple(t for t in tree.item(selected_code, "tags") if t != "unsaved")
             tree.item(selected_code, tags=tags)
@@ -2352,6 +2357,8 @@ class App:
             return True
 
         def mark_unsaved(*_):
+            if is_loading["value"]:
+                return
             item_id = current_code["value"]
             if item_id:
                 unsaved["flag"] = True
@@ -2383,6 +2390,8 @@ class App:
                 save_btn.config(state="disabled")
 
         def sync_bleed_mode_from_toggle(*_):
+            if is_loading["value"]:
+                return
             bleed_mode_var.set("auto" if auto_bleed_var.get() else "manual")
             update_state()
 
