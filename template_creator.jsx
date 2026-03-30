@@ -1693,6 +1693,9 @@ function processPair(pair, index) {
     var isPB005 = tmplName.indexOf('pb005') !== -1;
     var isPOTemplate = templateCodeUpper.indexOf('PO') === 0;
     var settings = loadTemplateSettings(pair.templateCode);
+    var rawBleedMode = (settings && typeof settings.bleedMode === 'string') ? settings.bleedMode : '';
+    var bleedMode = rawBleedMode ? rawBleedMode.toLowerCase() : 'auto';
+    if (bleedMode !== 'auto' && bleedMode !== 'manual') bleedMode = 'auto';
     var rawAlignment = (settings && typeof settings.alignment === 'string') ? settings.alignment : null;
     var alignment = normalizeAlignment(rawAlignment || 'center');
     if (rawAlignment && rawAlignment.toLowerCase() !== alignment) {
@@ -1766,7 +1769,7 @@ function processPair(pair, index) {
 
     var discoveredBleedPaths = discoverNamedBleedTargets(templateDoc);
     var bleedPaths = discoveredBleedPaths;
-    if (settings.bleedPaths && settings.bleedPaths.length && discoveredBleedPaths.length) {
+    if (bleedMode === 'manual' && settings.bleedPaths && settings.bleedPaths.length && discoveredBleedPaths.length) {
         var allowed = {};
         for (var si = 0; si < settings.bleedPaths.length; si++) {
             allowed[normalizeBleedTargetName(settings.bleedPaths[si])] = true;
@@ -1777,6 +1780,9 @@ function processPair(pair, index) {
             if (allowed[normalizeBleedTargetName(candidate.name)]) filtered.push(candidate);
         }
         if (filtered.length) bleedPaths = filtered;
+    }
+    if (bleedMode === 'manual' && (!settings.bleedPaths || !settings.bleedPaths.length)) {
+        writeProgress('Manual bleed mode enabled but no bleedPaths configured; using detected bleed targets.');
     }
     if (bleedPaths.length === 0) bleedPaths.push(templateBleedPath);
 

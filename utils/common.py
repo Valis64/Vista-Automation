@@ -28,6 +28,7 @@ ALLOWED_ALIGNMENTS = [
     "bottom-center",
     "bottom-right",
 ]
+ALLOWED_BLEED_MODES = ["auto", "manual"]
 
 LAM_COLORS = {
     "matte": "#FFA500",  # [255,165,0]
@@ -83,12 +84,25 @@ def load_template_settings(code: str, *, defaults: bool = True) -> dict:
                 data["alignment"] = normalized
             else:
                 raise ValueError("Invalid template settings: alignment must be a string")
+        if "bleedMode" in data:
+            bleed_mode = data["bleedMode"]
+            if isinstance(bleed_mode, str):
+                normalized_mode = bleed_mode.strip().lower()
+                if normalized_mode not in ALLOWED_BLEED_MODES:
+                    raise ValueError(
+                        "Invalid template settings: bleedMode must be one of "
+                        + ", ".join(ALLOWED_BLEED_MODES)
+                    )
+                data["bleedMode"] = normalized_mode
+            else:
+                raise ValueError("Invalid template settings: bleedMode must be a string")
         validate_template_settings(data)
         if defaults:
             data = dict(data)
             data.setdefault("mirror", False)
             data.setdefault("artworkScale", 1)
             data.setdefault("alignment", "center")
+            data.setdefault("bleedMode", "auto")
         return data
     except Exception:
         return {}
