@@ -2232,27 +2232,36 @@ class App:
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
-        tk.Label(edit_frame, text="Alignment").grid(row=2, column=0, sticky="w")
+        tk.Label(
+            edit_frame,
+            text=(
+                "Leave blank to auto-detect bleed paths named "
+                "'bleed', 'bleed 1', 'bleed 2', etc."
+            ),
+            fg="gray40",
+            wraplength=420,
+            justify="left",
+        ).grid(row=2, column=1, sticky="w", pady=(2, 0))
+        tk.Label(edit_frame, text="Alignment").grid(row=3, column=0, sticky="w")
         alignment_combo = ttk.Combobox(
             edit_frame,
             textvariable=alignment_var,
             values=ALLOWED_ALIGNMENTS,
             state="readonly",
         )
-        alignment_combo.grid(row=2, column=1, sticky="we")
+        alignment_combo.grid(row=3, column=1, sticky="we")
         tk.Checkbutton(edit_frame, text="Mirror", variable=mirror_var).grid(
-            row=3, column=0, columnspan=2, sticky="w"
+            row=4, column=0, columnspan=2, sticky="w"
         )
-        tk.Label(edit_frame, text="Artwork Scale").grid(row=4, column=0, sticky="w")
-        tk.Entry(edit_frame, textvariable=scale_var).grid(row=4, column=1, sticky="we")
+        tk.Label(edit_frame, text="Artwork Scale").grid(row=5, column=0, sticky="w")
+        tk.Entry(edit_frame, textvariable=scale_var).grid(row=5, column=1, sticky="we")
         edit_frame.grid_columnconfigure(1, weight=1)
 
         def validate() -> bool:
             rot = rotation_var.get().strip()
-            bleed = bleed_var.get().strip()
             scale = scale_var.get().strip()
             alignment = alignment_var.get().strip()
-            if not rot or not bleed or not scale or not alignment:
+            if not rot or not scale or not alignment:
                 return False
             try:
                 int(rot)
