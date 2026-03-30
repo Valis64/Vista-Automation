@@ -1,7 +1,12 @@
 import unittest
 import tempfile
 import os
-from order_gui import find_template_file, extract_paper_type, cut_file_for_template
+from order_gui import (
+    _resolve_template_and_paper,
+    cut_file_for_template,
+    extract_paper_type,
+    find_template_file,
+)
 
 class TemplateUtilsTest(unittest.TestCase):
     def test_find_template_lowest_paper(self):
@@ -55,6 +60,63 @@ class TemplateUtilsTest(unittest.TestCase):
             open(similar, "w").close()
             result = find_template_file(tmp, "RT3466")
             self.assertEqual(result, exact)
+
+    def test_resolve_template_and_paper_non_sample(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            standard_path = os.path.join(tmp, "RT3466_print 11in -vp.ai")
+            open(standard_path, "w").close()
+            path, paper = _resolve_template_and_paper(
+                tmp,
+                "RT3466",
+                {"gluetab": "- [250]"},
+            )
+            self.assertEqual(path, standard_path)
+            self.assertEqual(paper, "11in")
+
+    def test_resolve_template_and_paper_sample(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sample_dir = os.path.join(tmp, "Sample Templates")
+            os.makedirs(sample_dir, exist_ok=True)
+            sample_path = os.path.join(sample_dir, "RT3466_print 10in -vp.ai")
+            open(sample_path, "w").close()
+            path, paper = _resolve_template_and_paper(
+                tmp,
+                "RT3466",
+                {"gluetab": "- [11]"},
+            )
+            self.assertEqual(path, sample_path)
+            self.assertEqual(paper, "10in")
+
+    def test_resolve_template_and_paper_matches_save_ui_processing_contexts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "samples"), exist_ok=True)
+            sample_path = os.path.join(tmp, "samples", "RT3466_print 10in -vp.pdf")
+            regular_path = os.path.join(tmp, "RT3466_print 11in -vp.pdf")
+            open(sample_path, "w").close()
+            open(regular_path, "w").close()
+
+            base_item = {"template_dir": tmp, "template": "RT3466"}
+            contexts = {
+                "ui": {**base_item, "gluetab": "- [11]"},
+                "save": {**base_item, "gluetab": "- [11]", "order_id": "100"},
+                "processing": {**base_item, "gluetab": "- [11]", "art_id": "A1"},
+            }
+            sample_results = {
+                key: _resolve_template_and_paper(tmp, "RT3466", ctx)[1]
+                for key, ctx in contexts.items()
+            }
+            self.assertEqual(set(sample_results.values()), {"10in"})
+
+            non_sample_contexts = {
+                "ui": {**base_item, "gluetab": "- [250]"},
+                "save": {**base_item, "gluetab": "- [250]", "order_id": "100"},
+                "processing": {**base_item, "gluetab": "- [250]", "art_id": "A1"},
+            }
+            non_sample_results = {
+                key: _resolve_template_and_paper(tmp, "RT3466", ctx)[1]
+                for key, ctx in non_sample_contexts.items()
+            }
+            self.assertEqual(set(non_sample_results.values()), {"11in"})
 
 if __name__ == "__main__":
     unittest.main()
