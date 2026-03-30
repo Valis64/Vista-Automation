@@ -61,6 +61,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.summary_var = DummyVar(True)
         app.diagnostic_var = DummyVar(False)
         app.preserve_color_var = DummyVar(True)
+        app.convert_profile_var = DummyVar(False)
+        app.run_id = ""
         app.order_info_vars = {
             "order_id": DummyVar("ORD"),
             "company": DummyVar("Comp"),
@@ -72,11 +74,8 @@ class SelectionHelperTest(unittest.TestCase):
             "order_gui.messagebox.showinfo"
         ), mock.patch("order_gui.find_art_file", side_effect=lambda *a, **k: f"art:{a[1]}"):
             with mock.patch(
-                "order_gui.find_template_file",
-                side_effect=lambda *a, **k: f"template:{a[1]}",
-            ), mock.patch(
-                "order_gui.extract_paper_type",
-                side_effect=lambda path: f"paper:{path.split(':')[-1]}",
+                "order_gui._resolve_template_and_paper",
+                side_effect=lambda *a, **k: (f"template:{a[1]}", f"paper:{a[1]}"),
             ), mock.patch("order_gui.detect_laminate", return_value=""), mock.patch(
                 "order_gui.is_coffee_sleeve", return_value=False
             ), mock.patch(
@@ -124,6 +123,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.summary_var = DummyVar(True)
         app.diagnostic_var = DummyVar(False)
         app.preserve_color_var = DummyVar(True)
+        app.convert_profile_var = DummyVar(False)
+        app.run_id = ""
         app.order_info_vars = {
             "order_id": DummyVar("ORD"),
             "company": DummyVar("Comp"),
@@ -137,11 +138,8 @@ class SelectionHelperTest(unittest.TestCase):
             "order_gui.find_art_file", side_effect=lambda *a, **k: f"art:{a[1]}"
         ):
             with mock.patch(
-                "order_gui.find_template_file",
-                side_effect=lambda *a, **k: f"template:{a[1]}",
-            ), mock.patch(
-                "order_gui.extract_paper_type",
-                side_effect=lambda path: f"paper:{path.split(':')[-1]}",
+                "order_gui._resolve_template_and_paper",
+                side_effect=lambda *a, **k: (f"template:{a[1]}", f"paper:{a[1]}"),
             ), mock.patch("order_gui.detect_laminate", return_value=""), mock.patch(
                 "order_gui.is_coffee_sleeve", return_value=False
             ), mock.patch(

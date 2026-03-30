@@ -1047,6 +1047,26 @@ def get_item_quantity(item: dict) -> int:
     return 0
 
 
+def _resolve_template_and_paper(
+    temp_root: str,
+    template_code: str,
+    item_dict: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    """Return ``(template_path, paper_type)`` using shared sample rules."""
+    context = dict(item_dict or {})
+    quantity = get_item_quantity(context)
+    is_sample = quantity == 11
+    sample_matcher = build_sample_template_matcher(context)
+    template_path = find_template_file(
+        temp_root,
+        template_code,
+        sample=is_sample,
+        sample_matcher=sample_matcher,
+    )
+    paper_type = extract_paper_type(template_path)
+    return template_path, paper_type
+
+
 def sanitize_filename_base(name: str) -> str:
     """Return ``name`` without a trailing ``lines`` segment."""
     if not name:
@@ -3472,8 +3492,14 @@ class App:
         if not lam and is_coffee_sleeve(template):
             lam = "Uncoated"
         if template and not paper:
-            path = find_template_file(self.template_dir_var.get(), template)
-            paper = extract_paper_type(path)
+            lookup_item = dict(item)
+            if current_pairs and self.index < len(current_pairs):
+                lookup_item.update(current_pairs[self.index])
+            path, paper = _resolve_template_and_paper(
+                self.template_dir_var.get(),
+                template,
+                lookup_item,
+            )
         item["paperType"] = paper
         settings = load_template_settings(template)
         setting_val = template
@@ -3736,8 +3762,13 @@ class App:
             month_root = it.get("month_dir", self.month_dir_var.get())
             order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_path = find_art_file(art_root, art_id, month_root, order_id)
-            temp_path = find_template_file(temp_root, template)
-            paper = extract_paper_type(temp_path)
+            lookup_item = dict(it)
+            lookup_item.update(pair)
+            temp_path, paper = _resolve_template_and_paper(
+                temp_root,
+                template,
+                lookup_item,
+            )
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
@@ -4645,16 +4676,15 @@ class App:
             month_root = it.get("month_dir", self.month_dir_var.get())
             pair_idx = len(raw_pairs)
             art_path = find_art_file(art_root, art_id, month_root, order_id)
-            qty = get_item_quantity(it)
+            lookup_item = dict(it)
+            lookup_item.update(pair)
+            qty = get_item_quantity(lookup_item)
             sample = qty == 11
-            sample_matcher = build_sample_template_matcher(pair, it)
-            temp_path = find_template_file(
+            temp_path, paper = _resolve_template_and_paper(
                 temp_root,
                 template,
-                sample=sample,
-                sample_matcher=sample_matcher,
+                lookup_item,
             )
-            paper = extract_paper_type(temp_path)
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
