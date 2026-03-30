@@ -1660,6 +1660,16 @@ class App:
         self.cur_setting_var = tk.StringVar()
         self.cur_setting_entry = tk.Entry(info_frame, textvariable=self.cur_setting_var, state="disabled", width=20)
         self.cur_setting_entry.grid(row=2, column=1, padx=5, pady=2)
+        tk.Button(
+            info_frame,
+            text="Edit Template Settings",
+            command=self.open_selected_template_settings_editor,
+        ).grid(row=2, column=2, padx=5, pady=2, sticky="w")
+        tk.Label(
+            info_frame,
+            text="Edit rotation, bleed path names, mirror, scale, alignment.",
+            fg="gray40",
+        ).grid(row=2, column=3, sticky="w")
         self.coffee_label = tk.Label(info_frame, text="", fg="brown")
         self.coffee_label.grid(row=3, column=0, columnspan=4, sticky="w")
         info_frame.pack(padx=5, pady=2, anchor="w")
@@ -2715,6 +2725,11 @@ class App:
         fs_default_var.trace_add("write", mark_failsafe_unsaved)
 
         refresh_failsafe_table()
+
+    def open_selected_template_settings_editor(self):
+        """Open settings editor with the currently selected template preloaded."""
+        code = self.cur_template_var.get().strip().upper()
+        self.open_template_settings_editor(code=code or None)
 
     def save_settings(self):
         data = {

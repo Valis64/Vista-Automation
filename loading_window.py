@@ -89,6 +89,7 @@ class LoadingWindow:
         self.pair_disp_var = tk.StringVar()
         self.company_disp_var = tk.StringVar()
         self.setting_disp_var = tk.StringVar()
+        self.current_template_code = ""
         fields = [
             ("Steps", self.summary_var, 20, None),
             ("Current", self.pair_var, 25, None),
@@ -117,6 +118,20 @@ class LoadingWindow:
             entry.pack()
             if attr:
                 setattr(self, attr, entry)
+
+        settings_action_row = tk.Frame(info_frame, bg="black")
+        settings_action_row.grid(row=2, column=0, columnspan=3, sticky="w", padx=5)
+        tk.Button(
+            settings_action_row,
+            text="Edit Template Settings",
+            command=self.open_current_template_settings,
+        ).pack(side="left")
+        tk.Label(
+            settings_action_row,
+            text="Edit rotation, bleed path names, mirror, scale, alignment.",
+            bg="black",
+            fg="#9AE59A",
+        ).pack(side="left", padx=(8, 0))
 
         logs_frame = ttk.Frame(self.window)
         logs_frame.pack(padx=20, pady=(0, 10), fill="both", expand=True)
@@ -459,6 +474,7 @@ class LoadingWindow:
             details = (f" - {lam}" if lam else "")
             specials = []
             tmpl_code = self.items[pair_idx].get("template", "")
+            self.current_template_code = tmpl_code
             settings = load_template_settings(tmpl_code)
             if not settings and tmpl_code and tmpl_code not in self.missing_settings:
                 self.missing_settings.add(tmpl_code)
@@ -515,6 +531,14 @@ class LoadingWindow:
                 self._append(self.art_log)
             if "template" in lower:
                 self._append(self.template_log)
+
+    def open_current_template_settings(self):
+        """Open template settings editor for the active template when available."""
+        code = (self.current_template_code or self.setting_disp_var.get() or "").strip().upper()
+        try:
+            self.parent.open_template_settings_editor(code=code or None)
+        except Exception as exc:
+            messagebox.showerror("Error", str(exc), parent=self.window)
 
     def _extract_paper_type(self, text: str) -> str:
         match = PAPER_TYPE_RE.search(text)
