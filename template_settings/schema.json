@@ -12,6 +12,11 @@
       "items": {"type": "string"},
       "description": "Additional bleed path names to use"
     },
+    "bleedMode": {
+      "type": "string",
+      "enum": ["auto", "manual"],
+      "description": "How bleed targets are selected"
+    },
     "mirror": {
       "type": "boolean",
       "description": "Mirror artwork horizontally before placement"
