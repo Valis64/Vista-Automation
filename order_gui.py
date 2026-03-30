@@ -3370,7 +3370,10 @@ class App:
         specials = []
         if is_coffee_sleeve(template):
             specials.append("Coffee Sleeve")
-        if settings.get("bleedPaths") and len(settings["bleedPaths"]) > 1 and not is_coffee_sleeve(template):
+        bleed_mode = str(settings.get("bleedMode", "auto") or "auto").strip().lower()
+        if bleed_mode == "auto":
+            specials.append("Auto Bleed")
+        elif settings.get("bleedPaths") and len(settings["bleedPaths"]) > 1 and not is_coffee_sleeve(template):
             specials.append(f"{len(settings['bleedPaths'])}up")
         elif is_pb001(template):
             specials.append("2up")
