@@ -28,5 +28,33 @@ class TemplateUtilsTest(unittest.TestCase):
             self.assertEqual(result, print_path)
             self.assertEqual(cut_file_for_template(result), cut_path)
 
+    def test_sample_template_selected_without_legacy_sample_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sample_dir = os.path.join(tmp, "Sample Templates")
+            os.makedirs(sample_dir, exist_ok=True)
+            sample_path = os.path.join(sample_dir, "RT3466_print 10in -vp.pdf")
+            open(sample_path, "w").close()
+            result = find_template_file(tmp, "RT3466", sample=True)
+            self.assertEqual(result, sample_path)
+
+    def test_non_sample_template_ignores_sample_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sample_dir = os.path.join(tmp, "samples")
+            os.makedirs(sample_dir, exist_ok=True)
+            open(os.path.join(sample_dir, "RT3466_print 10in -vp.pdf"), "w").close()
+            standard_path = os.path.join(tmp, "RT3466_print 11in -vp.ai")
+            open(standard_path, "w").close()
+            result = find_template_file(tmp, "RT3466", sample=False)
+            self.assertEqual(result, standard_path)
+
+    def test_template_code_matching_prefers_exact_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exact = os.path.join(tmp, "RT3466_print 11in -vp.ai")
+            similar = os.path.join(tmp, "RT34660_print 10in -vp.ai")
+            open(exact, "w").close()
+            open(similar, "w").close()
+            result = find_template_file(tmp, "RT3466")
+            self.assertEqual(result, exact)
+
 if __name__ == "__main__":
     unittest.main()

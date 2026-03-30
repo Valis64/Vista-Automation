@@ -862,11 +862,98 @@ def find_art_file(
 
 
 
-def find_template_file(root: str, template: str, sample: bool = False) -> str:
+SAMPLE_TEMPLATE_DIR_PATTERNS = ("sample", "samples")
+SAMPLE_TEMPLATE_TOKEN_PATTERN = re.compile(r"(^|[\s_.\-()[\]])sample([\s_.\-()[\]]|$)", re.I)
+
+
+def _is_sample_template_candidate(
+    path: str,
+    *,
+    sample_matcher: Callable[[str], bool | None] | None = None,
+) -> bool:
+    """Return ``True`` if ``path`` appears to be a sample template."""
+    if sample_matcher is not None:
+        try:
+            decision = sample_matcher(path)
+        except Exception:
+            decision = None
+        if decision is not None:
+            return bool(decision)
+
+    parent_parts = Path(path).parts[:-1]
+    if any(re.search(pattern, part, re.I) for part in parent_parts for pattern in SAMPLE_TEMPLATE_DIR_PATTERNS):
+        return True
+
+    name = os.path.basename(path)
+    stem = os.path.splitext(name)[0]
+    if SAMPLE_TEMPLATE_TOKEN_PATTERN.search(stem):
+        return True
+
+    # Backward compatibility for existing legacy naming.
+    return "(sample)" in name.lower()
+
+
+def build_sample_template_matcher(
+    *sources: Mapping[str, Any] | None,
+) -> Callable[[str], bool | None] | None:
+    """Build a sample-template matcher from caller-provided metadata."""
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("template_is_sample", "is_sample_template", "sample_template"):
+            if key not in source:
+                continue
+            raw = source.get(key)
+            if isinstance(raw, bool):
+                return lambda _path, val=raw: val
+            if isinstance(raw, str):
+                val = raw.strip().lower()
+                if val in {"1", "true", "yes", "y"}:
+                    return lambda _path: True
+                if val in {"0", "false", "no", "n"}:
+                    return lambda _path: False
+
+    dir_hints: list[str] = []
+    token_hints: list[str] = []
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("sample_template_dir", "template_sample_dir"):
+            hint = str(source.get(key, "")).strip().lower()
+            if hint:
+                dir_hints.append(hint)
+        for key in ("sample_template_token", "template_sample_token"):
+            hint = str(source.get(key, "")).strip().lower()
+            if hint:
+                token_hints.append(hint)
+    if not dir_hints and not token_hints:
+        return None
+
+    def matcher(path: str) -> bool | None:
+        path_obj = Path(path)
+        parts = [part.lower() for part in path_obj.parts[:-1]]
+        if any(hint in part for hint in dir_hints for part in parts):
+            return True
+        stem = path_obj.stem.lower()
+        if any(re.search(rf"(^|[\s_.\-()[\]]){re.escape(hint)}([\s_.\-()[\]]|$)", stem) for hint in token_hints):
+            return True
+        return None
+
+    return matcher
+
+
+def find_template_file(
+    root: str,
+    template: str,
+    sample: bool = False,
+    *,
+    sample_matcher: Callable[[str], bool | None] | None = None,
+) -> str:
     """Return the template file path for ``template``.
 
-    When ``sample`` is ``True`` the name must contain ``(SAMPLE)``.  When
-    ``False`` any such files are ignored.
+    ``sample`` selection is based on explicit sample metadata from
+    ``sample_matcher`` or path context (sample folders/tokens). Legacy
+    ``(SAMPLE)`` naming remains supported for compatibility.
     """
     if not root or not template:
         return ""
@@ -882,13 +969,18 @@ def find_template_file(root: str, template: str, sample: bool = False) -> str:
                 and "_print" in low
                 and "-vp" in low
             ):
-                if sample and "(sample)" not in low:
+                candidate_path = os.path.join(dirpath, name)
+                is_sample = _is_sample_template_candidate(
+                    candidate_path,
+                    sample_matcher=sample_matcher,
+                )
+                if sample and not is_sample:
                     continue
-                if not sample and "(sample)" in low:
+                if not sample and is_sample:
                     continue
                 m = re.search(r"(\d+)in", low)
                 num = int(m.group(1)) if m else 999
-                candidates.append((num, os.path.join(dirpath, name)))
+                candidates.append((num, candidate_path))
     if not candidates:
         return ""
     candidates.sort(key=lambda x: x[0])
@@ -3255,7 +3347,16 @@ class App:
                 continue
             qty = get_item_quantity(items[idx]) if idx < len(items) else 0
             sample = qty == 11
-            if not find_template_file(temp_dir, code, sample=sample):
+            sample_matcher = build_sample_template_matcher(
+                p,
+                items[idx] if idx < len(items) else None,
+            )
+            if not find_template_file(
+                temp_dir,
+                code,
+                sample=sample,
+                sample_matcher=sample_matcher,
+            ):
                 label = f"{code} (sample)" if sample else code
                 if label not in missing:
                     missing.append(label)
@@ -4546,7 +4647,13 @@ class App:
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             qty = get_item_quantity(it)
             sample = qty == 11
-            temp_path = find_template_file(temp_root, template, sample=sample)
+            sample_matcher = build_sample_template_matcher(pair, it)
+            temp_path = find_template_file(
+                temp_root,
+                template,
+                sample=sample,
+                sample_matcher=sample_matcher,
+            )
             paper = extract_paper_type(temp_path)
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
             if not lam and is_coffee_sleeve(template):
