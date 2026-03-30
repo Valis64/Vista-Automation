@@ -2176,8 +2176,17 @@ class App:
             selectmode="browse",
         )
         tree.pack(side="left", fill="both", expand=True)
+        heading_labels = {
+            "code": "Code",
+            "rotation": "Rotation",
+            "bleedMode": "Bleed Mode",
+            "bleed": "Bleed Paths",
+            "mirror": "Mirror",
+            "artworkScale": "Artwork Scale",
+            "alignment": "Alignment",
+        }
         for col in columns:
-            tree.heading(col, text=col.title())
+            tree.heading(col, text=heading_labels.get(col, col.title()))
             if col == "bleed":
                 width = 240
             elif col == "bleedMode":
@@ -2198,8 +2207,15 @@ class App:
         scale_var = tk.StringVar()
         alignment_var = tk.StringVar(value="center")
         bleed_mode_var = tk.StringVar(value="auto")
+        auto_bleed_var = tk.BooleanVar(value=True)
         status_var = tk.StringVar()
         unsaved = {"flag": False}
+
+        def normalize_bleed_mode(value: str) -> str:
+            return "manual" if str(value).strip().lower() == "manual" else "auto"
+
+        def display_bleed_mode(value: str) -> str:
+            return "Manual" if normalize_bleed_mode(value) == "manual" else "Auto"
 
         def refresh_table(*_):
             sel = tree.selection()
@@ -2217,12 +2233,12 @@ class App:
                 mirror = data.get("mirror", False)
                 scale = data.get("artworkScale", "")
                 alignment = data.get("alignment", "center")
-                bleed_mode = data.get("bleedMode", "auto")
+                bleed_mode = normalize_bleed_mode(data.get("bleedMode", "auto"))
                 tree.insert(
                     "",
                     "end",
                     iid=code,
-                    values=(code, rot, bleed_mode, bleed, mirror, scale, alignment),
+                    values=(code, rot, display_bleed_mode(bleed_mode), bleed, mirror, scale, alignment),
                 )
             if sel and sel[0] in tree.get_children():
                 tree.selection_set(sel[0])
@@ -2241,7 +2257,8 @@ class App:
             mirror_var.set(bool(data.get("mirror", False)))
             scale_var.set(str(data.get("artworkScale", "")))
             alignment_var.set(str(data.get("alignment", "center")))
-            bleed_mode_var.set(str(data.get("bleedMode", "auto")))
+            bleed_mode_var.set(normalize_bleed_mode(data.get("bleedMode", "auto")))
+            auto_bleed_var.set(bleed_mode_var.get() == "auto")
             unsaved["flag"] = False
             update_state()
             tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
@@ -2254,7 +2271,8 @@ class App:
         tk.Label(edit_frame, text="Rotation").grid(row=0, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
-        tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
+        bleed_entry = tk.Entry(edit_frame, textvariable=bleed_var)
+        bleed_entry.grid(row=1, column=1, sticky="we")
         tk.Label(
             edit_frame,
             text=(
@@ -2266,12 +2284,13 @@ class App:
             justify="left",
         ).grid(row=2, column=1, sticky="w", pady=(2, 0))
         tk.Label(edit_frame, text="Bleed Mode").grid(row=3, column=0, sticky="w")
-        ttk.Combobox(
+        tk.Checkbutton(
             edit_frame,
-            textvariable=bleed_mode_var,
-            values=("auto", "manual"),
-            state="readonly",
-        ).grid(row=3, column=1, sticky="we")
+            text="Auto-detect bleed paths",
+            variable=auto_bleed_var,
+            onvalue=True,
+            offvalue=False,
+        ).grid(row=3, column=1, sticky="w")
         tk.Label(edit_frame, text="Alignment").grid(row=4, column=0, sticky="w")
         alignment_combo = ttk.Combobox(
             edit_frame,
@@ -2291,7 +2310,7 @@ class App:
             rot = rotation_var.get().strip()
             scale = scale_var.get().strip()
             alignment = alignment_var.get().strip()
-            bleed_mode = bleed_mode_var.get().strip()
+            bleed_mode = normalize_bleed_mode(bleed_mode_var.get().strip())
             if not rot or not scale or not alignment or not bleed_mode:
                 return False
             try:
@@ -2307,6 +2326,10 @@ class App:
                 return False
             if bleed_mode not in {"auto", "manual"}:
                 return False
+            if bleed_mode == "manual":
+                paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
+                if not paths:
+                    return False
             return True
 
         def mark_unsaved(*_):
@@ -2326,12 +2349,22 @@ class App:
         scale_var.trace_add("write", mark_unsaved)
         alignment_var.trace_add("write", mark_unsaved)
         bleed_mode_var.trace_add("write", mark_unsaved)
+        auto_bleed_var.trace_add("write", mark_unsaved)
 
         def update_state():
+            bleed_mode = normalize_bleed_mode(bleed_mode_var.get())
+            is_auto_mode = bleed_mode == "auto"
+            bleed_entry.config(state="disabled" if is_auto_mode else "normal")
             if unsaved["flag"] and validate():
                 save_btn.config(state="normal")
             else:
                 save_btn.config(state="disabled")
+
+        def sync_bleed_mode_from_toggle(*_):
+            bleed_mode_var.set("auto" if auto_bleed_var.get() else "manual")
+            update_state()
+
+        auto_bleed_var.trace_add("write", sync_bleed_mode_from_toggle)
 
         def save():
             sel = tree.selection()
@@ -2341,14 +2374,16 @@ class App:
             updates: dict[str, object] = {}
             rot_text = rotation_var.get().strip()
             updates["rotation"] = int(rot_text)
+            bleed_mode_value = normalize_bleed_mode(bleed_mode_var.get().strip())
             paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
+            if bleed_mode_value == "auto":
+                paths = []
             updates["bleedPaths"] = paths
             updates["mirror"] = mirror_var.get()
             scale_text = scale_var.get().strip()
             updates["artworkScale"] = float(scale_text)
             alignment_value = alignment_var.get().strip()
             updates["alignment"] = alignment_value
-            bleed_mode_value = bleed_mode_var.get().strip()
             updates["bleedMode"] = bleed_mode_value
             try:
                 update_template_settings(code, updates)
@@ -2357,7 +2392,7 @@ class App:
                     values=(
                         code,
                         updates["rotation"],
-                        bleed_mode_value,
+                        display_bleed_mode(bleed_mode_value),
                         ", ".join(paths),
                         updates["mirror"],
                         updates["artworkScale"],
@@ -2387,19 +2422,22 @@ class App:
 
                     tk.Label(master, text="Bleed paths:").grid(row=2, column=0, sticky="e")
                     self.bleed_var = tk.StringVar()
-                    tk.Entry(master, textvariable=self.bleed_var).grid(row=2, column=1, sticky="we")
+                    self.bleed_entry = tk.Entry(master, textvariable=self.bleed_var)
+                    self.bleed_entry.grid(row=2, column=1, sticky="we")
 
                     self.mirror_var = tk.BooleanVar(value=False)
                     tk.Checkbutton(master, text="Mirror", variable=self.mirror_var).grid(row=4, column=1, sticky="w")
 
                     tk.Label(master, text="Bleed mode:").grid(row=3, column=0, sticky="e")
-                    self.bleed_mode_var = tk.StringVar(value="auto")
-                    ttk.Combobox(
+                    self.auto_bleed_var = tk.BooleanVar(value=True)
+                    tk.Checkbutton(
                         master,
-                        textvariable=self.bleed_mode_var,
-                        values=("auto", "manual"),
-                        state="readonly",
-                    ).grid(row=3, column=1, sticky="we")
+                        text="Auto-detect bleed paths",
+                        variable=self.auto_bleed_var,
+                        onvalue=True,
+                        offvalue=False,
+                        command=self._update_bleed_state,
+                    ).grid(row=3, column=1, sticky="w")
 
                     tk.Label(master, text="Artwork scale:").grid(row=5, column=0, sticky="e")
                     self.scale_var = tk.StringVar(value="1")
@@ -2414,7 +2452,14 @@ class App:
                         state="readonly",
                     ).grid(row=6, column=1, sticky="we")
 
+                    self._update_bleed_state()
+
                     return code_entry
+
+                def _update_bleed_state(self):
+                    self.bleed_entry.config(
+                        state="disabled" if self.auto_bleed_var.get() else "normal"
+                    )
 
                 def validate(self):
                     code = self.code_var.get().strip().upper()
@@ -2433,8 +2478,8 @@ class App:
                     except ValueError:
                         messagebox.showerror("Error", "Scale must be a non-negative number", parent=self)
                         return False
+                    bleed_mode = "auto" if self.auto_bleed_var.get() else "manual"
                     bleed = [p.strip() for p in re.split(r"[,\s]+", self.bleed_var.get()) if p.strip()]
-                    bleed_mode = self.bleed_mode_var.get().strip()
                     if bleed_mode not in {"auto", "manual"}:
                         messagebox.showerror(
                             "Error",
@@ -2442,6 +2487,15 @@ class App:
                             parent=self,
                         )
                         return False
+                    if bleed_mode == "manual" and not bleed:
+                        messagebox.showerror(
+                            "Error",
+                            "At least one bleed path is required in manual mode",
+                            parent=self,
+                        )
+                        return False
+                    if bleed_mode == "auto":
+                        bleed = []
                     alignment = self.alignment_var.get().strip()
                     if alignment not in ALLOWED_ALIGNMENTS:
                         messagebox.showerror(
