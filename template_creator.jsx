@@ -479,14 +479,35 @@ function buildOptions(data) {
         return '';
     }
 
+    function isBlankTemplateMode(pair, item) {
+        var processingMode = '';
+        if (pair && typeof pair.processingMode !== 'undefined') processingMode = pair.processingMode;
+        else if (pair && typeof pair.processing_mode !== 'undefined') processingMode = pair.processing_mode;
+        else if (item && typeof item.processingMode !== 'undefined') processingMode = item.processingMode;
+        else if (item && typeof item.processing_mode !== 'undefined') processingMode = item.processing_mode;
+        if (String(processingMode).toLowerCase() === 'blank_template') return true;
+
+        var blankFlag = null;
+        if (pair && typeof pair.blank_template !== 'undefined') blankFlag = pair.blank_template;
+        else if (pair && typeof pair.blankTemplate !== 'undefined') blankFlag = pair.blankTemplate;
+        else if (item && typeof item.blank_template !== 'undefined') blankFlag = item.blank_template;
+        else if (item && typeof item.blankTemplate !== 'undefined') blankFlag = item.blankTemplate;
+        return blankFlag === true || blankFlag === 'true' || blankFlag === 1 || blankFlag === '1';
+    }
+
     for (var i=0; i<pairsInfo.length; i++) {
         var pair = pairsInfo[i] || {};
         var item = items[i] || {};
+        var blankTemplateMode = isBlankTemplateMode(pair, item);
+        var processingMode = blankTemplateMode ? 'blank_template' : '';
 
         if (isSkipped(pair) || isSkipped(item)) {
             out.push({
                 skip: true,
                 skipReason: getSkipReason(pair, item),
+                mode: processingMode,
+                processingMode: processingMode,
+                blankTemplateMode: blankTemplateMode,
                 laminate: getLamOption(pair.lamType || item.lamType),
                 paper: pair.paperType || item.paperType || '',
                 orderData: {
@@ -506,8 +527,11 @@ function buildOptions(data) {
         var lam = getLamOption(pair.lamType || item.lamType);
         var paper = pair.paperType || item.paperType || '';
         out.push({
-            artFile: File(pair.art_path),
-            templateFile: File(pair.template_path),
+            mode: processingMode,
+            processingMode: processingMode,
+            blankTemplateMode: blankTemplateMode,
+            artFile: (pair.art_path && !blankTemplateMode) ? File(pair.art_path) : null,
+            templateFile: pair.template_path ? File(pair.template_path) : null,
             templateCode: pair.template || item.templateName || '',
             laminate: lam,
             paper: paper,
@@ -901,7 +925,8 @@ function showInputDialog(orderItems, pairInfo) {
             return;
         }
         for (var i = 0; i < pairs.length; i++) {
-            if (!pairs[i].artPath() || !pairs[i].templatePath()) {
+            var isBlankTemplatePair = !!(pairs[i].blankTemplateMode || pairs[i].mode === 'blank_template' || pairs[i].processingMode === 'blank_template');
+            if ((!isBlankTemplatePair && !pairs[i].artPath()) || !pairs[i].templatePath()) {
                 alert('Please choose both files for pair ' + (i + 1));
                 return;
             }
@@ -925,8 +950,9 @@ function showInputDialog(orderItems, pairInfo) {
 
     var files = [];
     for (var j = 0; j < pairs.length; j++) {
+        var isBlankTemplatePair = !!(pairs[j].blankTemplateMode || pairs[j].mode === 'blank_template' || pairs[j].processingMode === 'blank_template');
         files.push({
-            artFile: File(pairs[j].artPath()),
+            artFile: (!isBlankTemplatePair && pairs[j].artPath()) ? File(pairs[j].artPath()) : null,
             templateFile: File(pairs[j].templatePath()),
             laminate: pairs[j].getLam(),
             paper: pairs[j].getPaper(),
@@ -1509,6 +1535,10 @@ function addLaminateLabel(doc, bleedBounds, lamName, lamColorArr) {
         h = Math.abs(lb[1] - lb[3]);
     } else {
         var b = bleedBounds;
+        if (!b) {
+            var ab = doc.artboards[0].artboardRect;
+            b = [ab[0], ab[1], ab[2], ab[3]];
+        }
         x = b[2] + 36;
         y = b[1] + 36;
         w = 60;
@@ -1679,12 +1709,15 @@ function main() {
 }
 
 function processPair(pair, index) {
+    var blankTemplateMode = !!(pair && (pair.blankTemplateMode || pair.mode === 'blank_template' || pair.processingMode === 'blank_template'));
     var orderData = pair.orderData || { info: '', gluetab: '', filename: '' };
+    var templateDoc = null;
+    var artworkDoc = null;
+    var templateBleedBounds = null;
 
-    writeProgress('Opening artwork "' + pair.artFile.name + '"');
-    var artworkDoc = app.open(pair.artFile);
-    waitForDocLoad(artworkDoc);
-    writeProgress('  Artwork loaded');
+    if (!pair.templateFile) {
+        throw new Error('Template file is required for pair ' + (index + 1) + '.');
+    }
 
     var tmplName = pair.templateFile.name.toLowerCase();
     var templateCodeUpper = pair.templateCode ? String(pair.templateCode).toUpperCase() : '';
@@ -1702,152 +1735,172 @@ function processPair(pair, index) {
         writeProgress('Alignment "' + rawAlignment + '" not recognized. Using ' + alignment + '.');
     }
 
-    writeProgress('Finding bleed path in artwork');
-    var templateDoc = null;
-    var bleedGroup = isCD0434 ?
-        findTopBleedPath(artworkDoc, true) :
-        findBleedPath(artworkDoc, isArtBleedColor, true);
-    if (!bleedGroup) {
-        var failSafe = runBleedFailSafe(artworkDoc, pair.templateFile, pair.templateCode);
-        bleedGroup = failSafe.bleedGroup;
-        templateDoc = failSafe.templateDoc;
-    }
-    if (!bleedGroup) alertAndExit('Bleed paths not found.');
-    waitStep();
-    writeProgress('  Bleed path located');
-
-    if (isPOTemplate) {
-        var liftResult = bringBleedGroupToFront(bleedGroup);
-        if (liftResult && liftResult.moved) {
-            bleedGroup = liftResult.group || bleedGroup;
-            writeProgress('  Raised bleed path to top for PO template before clipping');
-        } else {
-            writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
-        }
-    }
-
-    writeProgress('Creating clipping mask');
-    var clipGroup = createClippingGroup(artworkDoc, bleedGroup);
-    waitStep();
-    writeProgress('  Clip group created');
-
-    if (templateDoc) {
-        writeProgress('Template already open from fail-safe');
-    } else {
+    if (blankTemplateMode) {
+        writeProgress('Pair ' + (index + 1) + ' in blank-template mode');
         writeProgress('Opening template "' + pair.templateFile.name + '"');
         templateDoc = app.open(pair.templateFile);
         waitForDocLoad(templateDoc);
         writeProgress('  Template opened');
-    }
-
-    if (artworkDoc.documentColorSpace !== templateDoc.documentColorSpace) {
-        var artSpace = artworkDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
-        var tempSpace = templateDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
-        if (PRESERVE_COLOR_PROFILE || !CONVERT_ART_COLOR_PROFILE) {
-            alertAndExit('Color mode mismatch: artwork is ' + artSpace + ' but template is ' + tempSpace);
-        } else {
-            writeProgress('  Converting artwork to ' + tempSpace);
-            artworkDoc.activate();
-            if (templateDoc.documentColorSpace == DocumentColorSpace.CMYK) {
-                app.executeMenuCommand('doc-color-cmyk');
-                COLOR_PROFILE_CONVERSIONS += 1;
-            } else {
-                app.executeMenuCommand('doc-color-rgb');
-                COLOR_PROFILE_CONVERSIONS += 1;
-            }
-        }
-    }
-
-    writeProgress('Locating template bleed path');
-    // Find the template bleed path before pasting so artwork colors don't
-    // interfere with detection
-    var templateBleedPath = findLargestBleedPath(templateDoc, isTemplateBleedColor);
-    if (!templateBleedPath) throw new Error('Bleed paths not found.');
-    var templateBleedBounds = templateBleedPath.geometricBounds;
-    waitStep();
-    writeProgress('  Template bleed located');
-
-    var discoveredBleedPaths = discoverNamedBleedTargets(templateDoc);
-    var bleedPaths = [];
-    if (bleedMode === 'manual') {
-        if (!settings.bleedPaths || !settings.bleedPaths.length) {
-            throw new Error('Manual bleed mode requires settings.bleedPaths for template "' + pair.templateFile.name + '".');
-        }
-
-        var discoveredByName = {};
-        for (var dbi = 0; dbi < discoveredBleedPaths.length; dbi++) {
-            var discoveredItem = discoveredBleedPaths[dbi];
-            discoveredByName[normalizeBleedTargetName(discoveredItem.name)] = discoveredItem;
-        }
-
-        var missingTargets = [];
-        for (var si = 0; si < settings.bleedPaths.length; si++) {
-            var configuredName = settings.bleedPaths[si];
-            var normalizedConfiguredName = normalizeBleedTargetName(configuredName);
-            var resolvedTarget = discoveredByName[normalizedConfiguredName];
-            if (resolvedTarget) {
-                bleedPaths.push(resolvedTarget);
-            } else {
-                missingTargets.push(String(configuredName));
-            }
-        }
-
-        if (missingTargets.length) {
-            throw new Error(
-                'Manual bleed targets not found in template "' + pair.templateFile.name +
-                '": ' + missingTargets.join(', ') + '.'
-            );
+        var blankTemplateBleedPath = findLargestBleedPath(templateDoc, isTemplateBleedColor);
+        if (blankTemplateBleedPath) {
+            templateBleedBounds = blankTemplateBleedPath.geometricBounds;
         }
     } else {
-        bleedPaths = discoveredBleedPaths;
-    }
-
-    if (bleedPaths.length === 0) {
-        bleedPaths.push(templateBleedPath);
-        writeProgress('No named bleed targets resolved; using legacy largest bleed path fallback.');
-    }
-
-    writeProgress('Duplicating artwork');
-    for (var bi2 = 0; bi2 < bleedPaths.length; bi2++) {
-        var artLayer = getBottomArtLayer(templateDoc);
-        writeProgress('  Paste copy #' + (bi2 + 1));
-        var pasted = clipGroup.duplicate(artLayer, ElementPlacement.PLACEATEND);
-        if (!pasted) {
-            templateDoc.close(SaveOptions.DONOTSAVECHANGES);
-            artworkDoc.close(SaveOptions.DONOTSAVECHANGES);
-            throw new Error('Failed to duplicate artwork.');
+        if (!pair.artFile) {
+            throw new Error('Artwork file is required for pair ' + (index + 1) + ' when not using blank-template mode.');
         }
-        var rot = typeof settings.rotation === 'number' ? settings.rotation : (isCD0434 ? 90 : ((isPB001 || isPB005) ? 180 : 0));
-        if (rot) {
-            if (rot === 90 && settings.rotation === undefined && isCD0434) {
-                writeProgress('  Rotating for coffee sleeve');
-                pasted.rotate(90);
+
+        writeProgress('Opening artwork "' + pair.artFile.name + '"');
+        artworkDoc = app.open(pair.artFile);
+        waitForDocLoad(artworkDoc);
+        writeProgress('  Artwork loaded');
+
+        writeProgress('Finding bleed path in artwork');
+        var bleedGroup = isCD0434 ?
+            findTopBleedPath(artworkDoc, true) :
+            findBleedPath(artworkDoc, isArtBleedColor, true);
+        if (!bleedGroup) {
+            var failSafe = runBleedFailSafe(artworkDoc, pair.templateFile, pair.templateCode);
+            bleedGroup = failSafe.bleedGroup;
+            templateDoc = failSafe.templateDoc;
+        }
+        if (!bleedGroup) alertAndExit('Bleed paths not found.');
+        waitStep();
+        writeProgress('  Bleed path located');
+
+        if (isPOTemplate) {
+            var liftResult = bringBleedGroupToFront(bleedGroup);
+            if (liftResult && liftResult.moved) {
+                bleedGroup = liftResult.group || bleedGroup;
+                writeProgress('  Raised bleed path to top for PO template before clipping');
             } else {
-                writeProgress('  Rotating ' + rot + '°');
-                pasted.rotate(rot, true, true, true, true, Transformation.CENTER);
+                writeProgress('  Unable to elevate bleed path for PO template; continuing with existing order');
             }
         }
-        if (settings.mirror) {
-            writeProgress('  Mirroring artwork');
-            pasted.resize(-100, 100, true, true, true, true, 100, Transformation.CENTER);
-        }
-        var scale = (typeof settings.artworkScale === 'number') ? settings.artworkScale : 1;
-        if (scale && scale !== 1) {
-            writeProgress('  Scaling artwork to ' + Math.round(scale * 100) + '%');
-            pasted.resize(scale * 100, scale * 100, true, true, true, true, scale * 100, Transformation.CENTER);
-        }
-        waitStep();
 
-        writeProgress('Aligning artwork (' + alignment + ')');
-        alignGroupToPath(pasted, bleedPaths[bi2], alignment);
+        writeProgress('Creating clipping mask');
+        var clipGroup = createClippingGroup(artworkDoc, bleedGroup);
         waitStep();
-        writeProgress('  Alignment done');
+        writeProgress('  Clip group created');
+
+        if (templateDoc) {
+            writeProgress('Template already open from fail-safe');
+        } else {
+            writeProgress('Opening template "' + pair.templateFile.name + '"');
+            templateDoc = app.open(pair.templateFile);
+            waitForDocLoad(templateDoc);
+            writeProgress('  Template opened');
+        }
+
+        if (artworkDoc.documentColorSpace !== templateDoc.documentColorSpace) {
+            var artSpace = artworkDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
+            var tempSpace = templateDoc.documentColorSpace == DocumentColorSpace.RGB ? 'RGB' : 'CMYK';
+            if (PRESERVE_COLOR_PROFILE || !CONVERT_ART_COLOR_PROFILE) {
+                alertAndExit('Color mode mismatch: artwork is ' + artSpace + ' but template is ' + tempSpace);
+            } else {
+                writeProgress('  Converting artwork to ' + tempSpace);
+                artworkDoc.activate();
+                if (templateDoc.documentColorSpace == DocumentColorSpace.CMYK) {
+                    app.executeMenuCommand('doc-color-cmyk');
+                    COLOR_PROFILE_CONVERSIONS += 1;
+                } else {
+                    app.executeMenuCommand('doc-color-rgb');
+                    COLOR_PROFILE_CONVERSIONS += 1;
+                }
+            }
+        }
+
+        writeProgress('Locating template bleed path');
+        // Find the template bleed path before pasting so artwork colors don't
+        // interfere with detection
+        var templateBleedPath = findLargestBleedPath(templateDoc, isTemplateBleedColor);
+        if (!templateBleedPath) throw new Error('Bleed paths not found.');
+        templateBleedBounds = templateBleedPath.geometricBounds;
+        waitStep();
+        writeProgress('  Template bleed located');
+
+        var discoveredBleedPaths = discoverNamedBleedTargets(templateDoc);
+        var bleedPaths = [];
+        if (bleedMode === 'manual') {
+            if (!settings.bleedPaths || !settings.bleedPaths.length) {
+                throw new Error('Manual bleed mode requires settings.bleedPaths for template "' + pair.templateFile.name + '".');
+            }
+
+            var discoveredByName = {};
+            for (var dbi = 0; dbi < discoveredBleedPaths.length; dbi++) {
+                var discoveredItem = discoveredBleedPaths[dbi];
+                discoveredByName[normalizeBleedTargetName(discoveredItem.name)] = discoveredItem;
+            }
+
+            var missingTargets = [];
+            for (var si = 0; si < settings.bleedPaths.length; si++) {
+                var configuredName = settings.bleedPaths[si];
+                var normalizedConfiguredName = normalizeBleedTargetName(configuredName);
+                var resolvedTarget = discoveredByName[normalizedConfiguredName];
+                if (resolvedTarget) {
+                    bleedPaths.push(resolvedTarget);
+                } else {
+                    missingTargets.push(String(configuredName));
+                }
+            }
+
+            if (missingTargets.length) {
+                throw new Error(
+                    'Manual bleed targets not found in template "' + pair.templateFile.name +
+                    '": ' + missingTargets.join(', ') + '.'
+                );
+            }
+        } else {
+            bleedPaths = discoveredBleedPaths;
+        }
+
+        if (bleedPaths.length === 0) {
+            bleedPaths.push(templateBleedPath);
+            writeProgress('No named bleed targets resolved; using legacy largest bleed path fallback.');
+        }
+
+        writeProgress('Duplicating artwork');
+        for (var bi2 = 0; bi2 < bleedPaths.length; bi2++) {
+            var artLayer = getBottomArtLayer(templateDoc);
+            writeProgress('  Paste copy #' + (bi2 + 1));
+            var pasted = clipGroup.duplicate(artLayer, ElementPlacement.PLACEATEND);
+            if (!pasted) {
+                templateDoc.close(SaveOptions.DONOTSAVECHANGES);
+                artworkDoc.close(SaveOptions.DONOTSAVECHANGES);
+                throw new Error('Failed to duplicate artwork.');
+            }
+            var rot = typeof settings.rotation === 'number' ? settings.rotation : (isCD0434 ? 90 : ((isPB001 || isPB005) ? 180 : 0));
+            if (rot) {
+                if (rot === 90 && settings.rotation === undefined && isCD0434) {
+                    writeProgress('  Rotating for coffee sleeve');
+                    pasted.rotate(90);
+                } else {
+                    writeProgress('  Rotating ' + rot + '°');
+                    pasted.rotate(rot, true, true, true, true, Transformation.CENTER);
+                }
+            }
+            if (settings.mirror) {
+                writeProgress('  Mirroring artwork');
+                pasted.resize(-100, 100, true, true, true, true, 100, Transformation.CENTER);
+            }
+            var scale = (typeof settings.artworkScale === 'number') ? settings.artworkScale : 1;
+            if (scale && scale !== 1) {
+                writeProgress('  Scaling artwork to ' + Math.round(scale * 100) + '%');
+                pasted.resize(scale * 100, scale * 100, true, true, true, true, scale * 100, Transformation.CENTER);
+            }
+            waitStep();
+
+            writeProgress('Aligning artwork (' + alignment + ')');
+            alignGroupToPath(pasted, bleedPaths[bi2], alignment);
+            waitStep();
+            writeProgress('  Alignment done');
+        }
+
+        writeProgress('Closing artwork');
+        artworkDoc.close(SaveOptions.DONOTSAVECHANGES);
+        waitStep();
+        writeProgress('  Artwork closed');
     }
-
-    writeProgress('Closing artwork');
-    artworkDoc.close(SaveOptions.DONOTSAVECHANGES);
-    waitStep();
-    writeProgress('  Artwork closed');
 
     writeProgress('  Updating info text');
     var proofing = orderData.info;
@@ -1904,7 +1957,7 @@ function processPair(pair, index) {
             isPTemplate = true;
         }
     }
-    var destRoot = getAncestorFolder(pair.artFile, 1);
+    var destRoot = pair.artFile ? getAncestorFolder(pair.artFile, 1) : getAncestorFolder(pair.templateFile, 1);
     if (destRoot && !(destRoot instanceof Folder)) {
         destRoot = new Folder(destRoot);
     }
@@ -1963,7 +2016,8 @@ function processPair(pair, index) {
 
     return {
         pair: index + 1,
-        art: pair.artFile.name,
+        mode: blankTemplateMode ? 'blank_template' : 'standard',
+        art: pair.artFile ? pair.artFile.name : '',
         template: pair.templateFile.name,
         info: orderData.info,
         gluetab: orderData.gluetab,
