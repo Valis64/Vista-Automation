@@ -33,6 +33,13 @@ FLAG_REASONS = [
     "Color Adjustments",
 ]
 
+BLANK_TEMPLATE_ART_SENTINEL = "__BLANK_TEMPLATE__"
+
+
+def is_blank_template_art_path(art_path: str | None) -> bool:
+    """Return True when ``art_path`` represents blank-template art."""
+    return art_path == BLANK_TEMPLATE_ART_SENTINEL
+
 
 class FlagStatus(Enum):
     """Possible review states for a flagged file."""
@@ -356,7 +363,11 @@ class ReviewManager:
                     img_w, img_h = 800, 600
 
                 art_w = art_h = 0
-                if art_path and os.path.isfile(art_path):
+                if is_blank_template_art_path(art_path):
+                    art_label = tk.Label(self.art_holder, text="Blank")
+                    art_label.grid(row=0, column=0, sticky="nsew")
+                    art_w, art_h = 800, 600
+                elif art_path and os.path.isfile(art_path):
                     try:
                         import fitz
                         from PIL import Image, ImageTk
