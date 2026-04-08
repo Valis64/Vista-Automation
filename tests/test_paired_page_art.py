@@ -48,7 +48,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -78,7 +78,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -101,7 +101,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             contexts = [self._build_context(art_id, order_id, tmp)]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -133,7 +133,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -166,7 +166,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -197,7 +197,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -224,7 +224,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -258,7 +258,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -268,6 +268,44 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertTrue(
                 any("has only 1 page" in msg for msg in logs),
                 msg=f"Logs missing warning: {logs}",
+            )
+
+    def test_single_page_pdf_marks_blank_template_when_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "70002"
+            art_id = "SINGLEPAGEBLANK"
+            base_art = os.path.join(tmp, f"{art_id}.pdf")
+            doc = fitz.open()
+            try:
+                doc.new_page()
+                doc.save(base_art)
+            finally:
+                doc.close()
+
+            entries = [
+                {"template": "PO22", "art_path": base_art},
+                {"template": "PO22B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, base_art),
+                self._build_context("", order_id, tmp, ""),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons, blank_template_indices = resolve_paired_page_art(
+                entries,
+                contexts,
+                logs.append,
+                no_page2_policy="blank_template",
+            )
+
+            self.assertEqual(assignments.get(0), base_art)
+            self.assertNotIn(1, skips)
+            self.assertNotIn(1, skip_reasons)
+            self.assertIn(1, blank_template_indices)
+            self.assertTrue(
+                any("blank-template output" in msg for msg in logs),
+                msg=f"Logs missing blank-template warning: {logs}",
             )
 
     def test_prefers_unsuffixed_single_page_over_page1(self):
@@ -297,7 +335,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -330,7 +368,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             contexts = [self._build_context(art_id, order_id, tmp)]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -360,7 +398,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -400,7 +438,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -450,7 +488,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -553,7 +591,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -566,7 +604,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
         contexts = [self._build_context("ARTNONPO", "10002", "/tmp")]
         logs: list[str] = []
 
-        assignments, skips, skip_reasons = resolve_paired_page_art(
+        assignments, skips, skip_reasons, _ = resolve_paired_page_art(
             entries, contexts, logs.append
         )
 

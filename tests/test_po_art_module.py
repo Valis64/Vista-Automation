@@ -39,7 +39,7 @@ class TestPoArtModule:
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -71,7 +71,7 @@ class TestPoArtModule:
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -98,7 +98,7 @@ class TestPoArtModule:
             ]
             logs: list[str] = []
 
-            assignments, skips, skip_reasons = resolve_paired_page_art(
+            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
                 entries, contexts, logs.append
             )
 
@@ -118,7 +118,7 @@ class TestPoArtModule:
         ]
         logs: list[str] = []
 
-        assignments, skips, skip_reasons = resolve_paired_page_art(
+        assignments, skips, skip_reasons, _ = resolve_paired_page_art(
             entries, contexts, logs.append
         )
 
