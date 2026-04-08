@@ -55,8 +55,12 @@ def _run_build_options(data):
             $build_source
             const result = buildOptions(data);
             const mapped = result.pairs.map(p => ({
-                artFile: p.artFile.path,
-                templateFile: p.templateFile.path,
+                skip: !!p.skip,
+                mode: p.mode,
+                processingMode: p.processingMode,
+                blankTemplateMode: !!p.blankTemplateMode,
+                artFile: p.artFile ? p.artFile.path : null,
+                templateFile: p.templateFile ? p.templateFile.path : null,
                 templateCode: p.templateCode,
                 laminate: p.laminate,
                 paper: p.paper,
@@ -103,8 +107,57 @@ def test_build_options_skips_flagged_pairs_and_items():
 
     pairs = _run_build_options(data)
 
-    assert [p["artFile"] for p in pairs] == ["art-one.ai", "art-four.ai"]
+    assert len(pairs) == 4
+    assert [p["artFile"] for p in pairs] == [
+        "art-one.ai",
+        "art-two.ai",
+        "art-three.ai",
+        "art-four.ai",
+    ]
+    assert pairs[1]["skip"] is True
+    assert pairs[2]["skip"] is True
     assert pairs[0]["orderData"]["filename"] == "keep.ai"
-    assert pairs[1]["orderData"]["filename"] == "keep-last.ai"
-    assert pairs[1]["laminate"]["name"] == "Uncoated"
-    assert pairs[1]["paper"] == "Paper D"
+    assert pairs[3]["orderData"]["filename"] == "keep-last.ai"
+    assert pairs[3]["laminate"]["name"] == "Uncoated"
+    assert pairs[3]["paper"] == "Paper D"
+
+
+def test_build_options_blank_template_mode_does_not_require_art_path():
+    data = {
+        "items": [
+            {"filename": "blank.ai", "info": "blank-mode", "lamType": "Matte", "paperType": "Paper A"},
+            {"filename": "normal.ai", "info": "standard", "lamType": "Gloss", "paperType": "Paper B"},
+        ],
+        "pairs": [
+            {
+                "art_path": "should-not-be-used.ai",
+                "template_path": "template-blank.ai",
+                "template": "TB",
+                "blank_template": True,
+            },
+            {"art_path": "normal-art.ai", "template_path": "template-normal.ai", "template": "TN"},
+        ],
+    }
+
+    pairs = _run_build_options(data)
+
+    assert pairs[0]["templateCode"] == "TB"
+    assert pairs[0]["templateFile"] == "template-blank.ai"
+    assert pairs[0]["artFile"] is None
+    assert pairs[1]["artFile"] == "normal-art.ai"
+
+
+def test_build_options_default_mode_keeps_art_file_when_blank_template_not_enabled():
+    data = {
+        "items": [
+            {"filename": "default.ai", "info": "default", "lamType": "Matte", "paperType": "Paper A"}
+        ],
+        "pairs": [
+            {"art_path": "default-art.ai", "template_path": "template-default.ai", "template": "TD"}
+        ],
+    }
+
+    pairs = _run_build_options(data)
+
+    assert len(pairs) == 1
+    assert pairs[0]["artFile"] == "default-art.ai"
