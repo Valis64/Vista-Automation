@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import re
 import traceback
-from typing import Callable, Sequence
+from typing import Callable, Literal, Sequence
 
 import fitz
 
@@ -281,12 +281,14 @@ def resolve_paired_page_art(
     entries: Sequence[dict],
     contexts: Sequence[dict],
     logger: Callable[[str], None],
-) -> tuple[dict[int, str], set[int], dict[int, str]]:
+    no_page2_policy: Literal["skip", "blank_template"] = "skip",
+) -> tuple[dict[int, str], set[int], dict[int, str], set[int]]:
     """Assign PAGE1/PAGE2 files from extracted ZIP folders to P templates."""
 
     assignments: dict[int, str] = {}
     skips: set[int] = set()
     skip_reasons: dict[int, str] = {}
+    blank_template_indices: set[int] = set()
 
     def mark_skip(idx: int | None, reason: str) -> None:
         if idx is None:
@@ -299,7 +301,7 @@ def resolve_paired_page_art(
 
     limit = min(len(entries), len(contexts))
     if limit == 0:
-        return assignments, skips, skip_reasons
+        return assignments, skips, skip_reasons, blank_template_indices
 
     pair_map = _build_pair_map(entries, limit)
 
@@ -408,10 +410,16 @@ def resolve_paired_page_art(
                     page_count = _pdf_page_count(base_art_path)
                     if page_count is not None and page_count < 2:
                         mate_missing_second_page = True
-                        logger(
-                            f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
-                        )
-                        mark_skip(mate_idx, "No page 2 art")
+                        if no_page2_policy == "blank_template":
+                            blank_template_indices.add(mate_idx)
+                            logger(
+                                f"Warning: base art {base_art_path} has only {page_count} page(s); marking template {mate_label} for blank-template output."
+                            )
+                        else:
+                            logger(
+                                f"Warning: base art {base_art_path} has only {page_count} page(s); skipping template {mate_label}."
+                            )
+                            mark_skip(mate_idx, "No page 2 art")
                 if folder and not page1:
                     logger(
                         f"Warning: page1.pdf not found for {base_code} in {folder}; using standard art instead."
@@ -420,7 +428,7 @@ def resolve_paired_page_art(
                 logger(
                     f"Using standard art for PO pair {base_code} because extracted pages are unavailable for mate {mate_label}."
                 )
-                if mate_idx is not None:
+                if mate_idx is not None and not mate_missing_second_page:
                     mark_skip(mate_idx, "Missing extracted PO art")
             else:
                 logger(
@@ -429,4 +437,4 @@ def resolve_paired_page_art(
                 for idx in indices:
                     mark_skip(idx, "No PO art found")
 
-    return assignments, skips, skip_reasons
+    return assignments, skips, skip_reasons, blank_template_indices

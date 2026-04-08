@@ -3834,8 +3834,14 @@ class App:
                 }
             )
 
-        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-            raw_pairs, pair_contexts, self.log_message
+        no_page2_policy = (
+            "blank_template" if self.create_blank_po_no_page2_var.get() else "skip"
+        )
+        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+            raw_pairs,
+            pair_contexts,
+            self.log_message,
+            no_page2_policy=no_page2_policy,
         )
 
         skip_set = set(skip_indices) | initial_skip_indices
@@ -3845,6 +3851,9 @@ class App:
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
+            if idx in blank_template_indices:
+                updated["blank_template"] = True
+                updated["blank_template_reason"] = "No page 2 art"
             if idx in skip_set:
                 updated["skip"] = True
                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
@@ -4152,8 +4161,16 @@ class App:
                         )
 
                     if raw_pairs:
-                        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-                            raw_pairs, pair_contexts, self.log_message
+                        no_page2_policy = (
+                            "blank_template"
+                            if self.create_blank_po_no_page2_var.get()
+                            else "skip"
+                        )
+                        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+                            raw_pairs,
+                            pair_contexts,
+                            self.log_message,
+                            no_page2_policy=no_page2_policy,
                         )
 
                         skip_set = set(skip_indices) | initial_skip_indices
@@ -4163,6 +4180,9 @@ class App:
                             updated = dict(entry)
                             if idx in assignments:
                                 updated["art_path"] = assignments[idx]
+                            if idx in blank_template_indices:
+                                updated["blank_template"] = True
+                                updated["blank_template_reason"] = "No page 2 art"
                             if idx in skip_set:
                                 updated["skip"] = True
                                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
@@ -4775,8 +4795,14 @@ class App:
                 }
             )
 
-        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-            raw_pairs, pair_contexts, self.log_message
+        no_page2_policy = (
+            "blank_template" if self.create_blank_po_no_page2_var.get() else "skip"
+        )
+        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+            raw_pairs,
+            pair_contexts,
+            self.log_message,
+            no_page2_policy=no_page2_policy,
         )
 
         skip_set = set(skip_indices) | initial_skip_indices
@@ -4787,6 +4813,9 @@ class App:
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
+            if idx in blank_template_indices:
+                updated["blank_template"] = True
+                updated["blank_template_reason"] = "No page 2 art"
             if idx in skip_set:
                 updated["skip"] = True
                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
