@@ -60,6 +60,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.order_id_var = DummyVar("ORD")
         app.summary_var = DummyVar(True)
         app.diagnostic_var = DummyVar(False)
+        app.skip_po_no_page2_var = DummyVar(False)
+        app.create_blank_po_no_page2_var = DummyVar(True)
         app.preserve_color_var = DummyVar(True)
         app.convert_profile_var = DummyVar(False)
         app.run_id = ""
@@ -80,7 +82,7 @@ class SelectionHelperTest(unittest.TestCase):
                 "order_gui.is_coffee_sleeve", return_value=False
             ), mock.patch(
                 "order_gui.resolve_paired_page_art",
-                return_value=({}, {0}, {0: "No PO art found"}),
+                return_value=({}, {0}, {0: "No PO art found"}, {1}),
             ), mock.patch(
                 "order_gui.save_order_data"
             ) as save_mock:
@@ -92,8 +94,12 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertEqual(saved["items"][0].get("skip_reason"), "No PO art found")
         self.assertTrue(saved["pairs"][0].get("skip"))
         self.assertEqual(saved["pairs"][0].get("skip_reason"), "No PO art found")
+        self.assertTrue(saved["pairs"][1].get("blank_template"))
+        self.assertEqual(saved["pairs"][1].get("blank_template_reason"), "No page 2 art")
         self.assertEqual([p.get("art_id") for p in saved["pairs"]], ["a1", "a3"])
         self.assertEqual([p.get("template") for p in saved["pairs"]], ["t1", "t3"])
+        self.assertFalse(saved.get("skip_po_no_page2"))
+        self.assertTrue(saved.get("create_blank_po_no_page2"))
 
     def test_save_json_preserves_existing_skip_flags(self):
         app = order_gui.App.__new__(order_gui.App)
@@ -122,6 +128,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.order_id_var = DummyVar("ORD")
         app.summary_var = DummyVar(True)
         app.diagnostic_var = DummyVar(False)
+        app.skip_po_no_page2_var = DummyVar(True)
+        app.create_blank_po_no_page2_var = DummyVar(False)
         app.preserve_color_var = DummyVar(True)
         app.convert_profile_var = DummyVar(False)
         app.run_id = ""
@@ -144,7 +152,7 @@ class SelectionHelperTest(unittest.TestCase):
                 "order_gui.is_coffee_sleeve", return_value=False
             ), mock.patch(
                 "order_gui.resolve_paired_page_art",
-                return_value=({}, set(), {}),
+                return_value=({}, set(), {}, set()),
             ), mock.patch(
                 "order_gui.save_order_data"
             ) as save_mock:
@@ -155,8 +163,11 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertEqual(len(saved["pairs"]), 2)
         self.assertTrue(saved["pairs"][0].get("skip"))
         self.assertEqual(saved["pairs"][0].get("skip_reason"), "No Print Box")
+        self.assertIsNone(saved["pairs"][0].get("blank_template"))
         self.assertTrue(saved["items"][0].get("skip"))
         self.assertEqual(saved["items"][0].get("skip_reason"), "No Print Box")
+        self.assertTrue(saved.get("skip_po_no_page2"))
+        self.assertFalse(saved.get("create_blank_po_no_page2"))
 
 
 if __name__ == "__main__":

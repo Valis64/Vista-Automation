@@ -236,7 +236,7 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 any("Using standard art for PO pair" in msg for msg in logs)
             )
 
-    def test_single_page_pdf_skips_mate(self):
+    def test_single_page_pdf_handles_mate_by_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "70001"
             art_id = "SINGLEPAGE"
@@ -256,57 +256,41 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 self._build_context(art_id, order_id, tmp, base_art),
                 self._build_context("", order_id, tmp, ""),
             ]
-            logs: list[str] = []
+            for (
+                no_page2_policy,
+                expected_skips,
+                expected_blank_templates,
+                expected_log_text,
+            ) in (
+                ("skip", {1}, set(), "skipping template"),
+                ("blank_template", set(), {1}, "blank-template output"),
+            ):
+                with self.subTest(no_page2_policy=no_page2_policy):
+                    logs: list[str] = []
+                    assignments, skips, skip_reasons, blank_template_indices = (
+                        resolve_paired_page_art(
+                            entries,
+                            contexts,
+                            logs.append,
+                            no_page2_policy=no_page2_policy,
+                        )
+                    )
 
-            assignments, skips, skip_reasons, _ = resolve_paired_page_art(
-                entries, contexts, logs.append
-            )
-
-            self.assertEqual(assignments.get(0), base_art)
-            self.assertIn(1, skips)
-            self.assertEqual(skip_reasons.get(1), "No page 2 art")
-            self.assertTrue(
-                any("has only 1 page" in msg for msg in logs),
-                msg=f"Logs missing warning: {logs}",
-            )
-
-    def test_single_page_pdf_marks_blank_template_when_requested(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            order_id = "70002"
-            art_id = "SINGLEPAGEBLANK"
-            base_art = os.path.join(tmp, f"{art_id}.pdf")
-            doc = fitz.open()
-            try:
-                doc.new_page()
-                doc.save(base_art)
-            finally:
-                doc.close()
-
-            entries = [
-                {"template": "PO22", "art_path": base_art},
-                {"template": "PO22B", "art_path": ""},
-            ]
-            contexts = [
-                self._build_context(art_id, order_id, tmp, base_art),
-                self._build_context("", order_id, tmp, ""),
-            ]
-            logs: list[str] = []
-
-            assignments, skips, skip_reasons, blank_template_indices = resolve_paired_page_art(
-                entries,
-                contexts,
-                logs.append,
-                no_page2_policy="blank_template",
-            )
-
-            self.assertEqual(assignments.get(0), base_art)
-            self.assertNotIn(1, skips)
-            self.assertNotIn(1, skip_reasons)
-            self.assertIn(1, blank_template_indices)
-            self.assertTrue(
-                any("blank-template output" in msg for msg in logs),
-                msg=f"Logs missing blank-template warning: {logs}",
-            )
+                    self.assertEqual(assignments.get(0), base_art)
+                    self.assertEqual(skips, expected_skips)
+                    self.assertEqual(blank_template_indices, expected_blank_templates)
+                    if no_page2_policy == "skip":
+                        self.assertEqual(skip_reasons.get(1), "No page 2 art")
+                    else:
+                        self.assertNotIn(1, skip_reasons)
+                    self.assertTrue(
+                        any("has only 1 page" in msg for msg in logs),
+                        msg=f"Logs missing warning: {logs}",
+                    )
+                    self.assertTrue(
+                        any(expected_log_text in msg for msg in logs),
+                        msg=f"Logs missing '{expected_log_text}' warning: {logs}",
+                    )
 
     def test_prefers_unsuffixed_single_page_over_page1(self):
         with tempfile.TemporaryDirectory() as tmp:
