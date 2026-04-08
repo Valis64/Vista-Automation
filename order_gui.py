@@ -57,6 +57,7 @@ from utils.history import (
     HISTORY_FILE,
 )
 from review import (
+    BLANK_TEMPLATE_ART_SENTINEL,
     FlaggedItem,
     FlagStatus,
     load_flags,
@@ -436,6 +437,7 @@ def prepare_flat_review_entries(
     candidates: Sequence[dict],
     assignments: Mapping[int, str],
     skip_indices: Iterable[int],
+    blank_template_indices: Iterable[int] = (),
     *,
     run_start_time: float | None = None,
     diagnostic: bool,
@@ -446,6 +448,7 @@ def prepare_flat_review_entries(
     """Build flat-review metadata using resolved art assignments."""
 
     skip_set = set(skip_indices)
+    blank_template_set = set(blank_template_indices)
     flat_entries: list[
         tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
     ] = []
@@ -458,8 +461,11 @@ def prepare_flat_review_entries(
         if idx is None or idx in skip_set:
             continue
 
+        is_blank_template = idx in blank_template_set
         art_path = assignments.get(idx, "") or candidate.get("art_path")
-        if not art_path:
+        if is_blank_template:
+            art_path = BLANK_TEMPLATE_ART_SENTINEL
+        elif not art_path:
             continue
 
         filename_base = candidate.get("filename_base") or ""
@@ -4830,6 +4836,7 @@ class App:
             flat_candidates,
             assignments,
             skip_indices,
+            blank_template_indices,
             run_start_time=self.run_start_time,
             diagnostic=self.diagnostic_var.get(),
         )
