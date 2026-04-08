@@ -1874,6 +1874,8 @@ class App:
         self.appearance_var = tk.StringVar()
         self.diagnostic_var = tk.BooleanVar(value=False)
         self.review_flats_var = tk.BooleanVar(value=False)
+        self.skip_po_no_page2_var = tk.BooleanVar(value=True)
+        self.create_blank_po_no_page2_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
         self.convert_profile_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
@@ -1886,6 +1888,10 @@ class App:
         settings = load_settings()
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
         self.review_flats_var.set(settings.get("review_flats", False))
+        self.skip_po_no_page2_var.set(settings.get("skip_po_no_page2", True))
+        self.create_blank_po_no_page2_var.set(settings.get("create_blank_po_no_page2", False))
+        if self.skip_po_no_page2_var.get() and self.create_blank_po_no_page2_var.get():
+            self.create_blank_po_no_page2_var.set(False)
         self.preserve_color_var.set(settings.get("preserve_color_profile", False))
         self.convert_profile_var.set(settings.get("convert_art_color_profile", False))
         self.login_url_var.set(settings.get("login_url", ""))
@@ -1991,6 +1997,20 @@ class App:
             diag_frame,
             text="Diagnostic mode (save to '--DO NOT USE - PRINT--')",
             variable=self.diagnostic_var,
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Checkbutton(
+            diag_frame,
+            text="Skip no page 2 art (PO templates)",
+            variable=self.skip_po_no_page2_var,
+            command=self.on_skip_po_no_page2_toggle,
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Checkbutton(
+            diag_frame,
+            text="Create blank print file template for PO templates",
+            variable=self.create_blank_po_no_page2_var,
+            command=self.on_create_blank_po_no_page2_toggle,
         ).grid(row=row, column=0, sticky="w")
         row += 1
         tk.Button(
@@ -2997,10 +3017,20 @@ class App:
             "appearance_mode": self.appearance_var.get(),
             "diagnostic_mode": self.diagnostic_var.get(),
             "review_flats": self.review_flats_var.get(),
+            "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+            "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
             "preserve_color_profile": self.preserve_color_var.get(),
             "convert_art_color_profile": self.convert_profile_var.get(),
         }
         save_settings(data)
+
+    def on_skip_po_no_page2_toggle(self):
+        if self.skip_po_no_page2_var.get():
+            self.create_blank_po_no_page2_var.set(False)
+
+    def on_create_blank_po_no_page2_toggle(self):
+        if self.create_blank_po_no_page2_var.get():
+            self.skip_po_no_page2_var.set(False)
 
     def update_pair_display(self):
         temps = " | ".join(p.get("template", "") for p in self.pairs)
@@ -3834,6 +3864,8 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+                "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
                 "convert_art_color_profile": self.convert_profile_var.get(),
                 "order_info": {
@@ -4803,6 +4835,8 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+                "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
                 "convert_art_color_profile": self.convert_profile_var.get(),
                 "run_id": self.run_id or "",
