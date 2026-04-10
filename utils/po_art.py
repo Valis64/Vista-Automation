@@ -401,9 +401,16 @@ def resolve_paired_page_art(
                     elif page2:
                         assignments[mate_idx] = page2
                     else:
-                        logger(
-                            f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}.")
-                        mark_skip(mate_idx, "Missing page2.pdf")
+                        if no_page2_policy == "blank_template":
+                            blank_template_indices.add(mate_idx)
+                            logger(
+                                f"Warning: page2.pdf not found for {base_code} in {folder}; marking template {entries[mate_idx].get('template', base_code + 'B')} for blank-template output."
+                            )
+                        else:
+                            logger(
+                                f"Warning: page2.pdf not found for {base_code} in {folder}; skipping template {entries[mate_idx].get('template', base_code + 'B')}."
+                            )
+                            mark_skip(mate_idx, "Missing page2.pdf")
             elif fallback_art and base_idx is not None and base_idx < len(entries):
                 mate_missing_second_page = False
                 if mate_idx is not None and base_art_path:

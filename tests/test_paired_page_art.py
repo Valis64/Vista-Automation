@@ -88,6 +88,41 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
             self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
 
+    def test_missing_page2_marks_blank_template_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "54321"
+            art_id = "ART002"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            with open(page1, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO2", "art_path": ""},
+                {"template": "PO2B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons, blank_template_indices = resolve_paired_page_art(
+                entries,
+                contexts,
+                logs.append,
+                no_page2_policy="blank_template",
+            )
+
+            self.assertEqual(assignments.get(0), page1)
+            self.assertNotIn(1, assignments)
+            self.assertIn(1, blank_template_indices)
+            self.assertNotIn(1, skips)
+            self.assertNotIn(1, skip_reasons)
+            self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
+            self.assertTrue(any("blank-template output" in msg for msg in logs))
+
     def test_missing_mate_logs_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
             order_id = "88888"
