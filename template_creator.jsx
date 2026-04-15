@@ -47,6 +47,8 @@ var TEMPLATE_ROOT = 'C:/Users/neone/My Drive (stevan.ybs@gmail.com)/DIE PRINT FI
 var ART_ROOT = '\\MCI2NAS/Art server';
 var SHOW_SUMMARY = false;
 var DIAGNOSTIC_MODE = false;
+var OUTPUT_LINED_PDF = true;
+var OUTPUT_FLAT_PDF = true;
 var PRESERVE_COLOR_PROFILE = false;
 var CONVERT_ART_COLOR_PROFILE = false;
 var COLOR_PROFILE_CONVERSIONS = 0;
@@ -425,6 +427,12 @@ function loadInitialOrder() {
         }
         if (obj && typeof obj.diagnostic !== 'undefined') {
             DIAGNOSTIC_MODE = !!obj.diagnostic;
+        }
+        if (obj && typeof obj.output_lined_pdf !== 'undefined') {
+            OUTPUT_LINED_PDF = !!obj.output_lined_pdf;
+        }
+        if (obj && typeof obj.output_flat_pdf !== 'undefined') {
+            OUTPUT_FLAT_PDF = !!obj.output_flat_pdf;
         }
         if (obj && typeof obj.preserve_color_profile !== 'undefined') {
             PRESERVE_COLOR_PROFILE = !!obj.preserve_color_profile;
@@ -1708,6 +1716,75 @@ function main() {
     return cancelled;
 }
 
+function _clampGray(value) {
+    var n = Number(value);
+    if (isNaN(n)) n = 0;
+    if (n < 0) n = 0;
+    if (n > 100) n = 100;
+    return n;
+}
+
+function _colorToGray(color) {
+    if (!color || !color.typename) return null;
+    var gray = new GrayColor();
+    var t = color.typename;
+
+    if (t === 'GrayColor') {
+        gray.gray = _clampGray(color.gray);
+        return gray;
+    }
+    if (t === 'RGBColor') {
+        var luma = 0.299 * color.red + 0.587 * color.green + 0.114 * color.blue;
+        gray.gray = _clampGray(100 - ((luma / 255) * 100));
+        return gray;
+    }
+    if (t === 'CMYKColor') {
+        var c = _clampGray(color.cyan) / 100;
+        var m = _clampGray(color.magenta) / 100;
+        var y = _clampGray(color.yellow) / 100;
+        var k = _clampGray(color.black) / 100;
+        var r = 255 * (1 - c) * (1 - k);
+        var g = 255 * (1 - m) * (1 - k);
+        var b = 255 * (1 - y) * (1 - k);
+        var lumaCmyk = 0.299 * r + 0.587 * g + 0.114 * b;
+        gray.gray = _clampGray(100 - ((lumaCmyk / 255) * 100));
+        return gray;
+    }
+    if (t === 'SpotColor' && color.spot && color.spot.color) {
+        return _colorToGray(color.spot.color);
+    }
+
+    return null;
+}
+
+function convertDocumentArtworkToGray(doc) {
+    if (!doc) return;
+    var converted = 0;
+    for (var i = 0; i < doc.pageItems.length; i++) {
+        var item = doc.pageItems[i];
+        if (!item) continue;
+        try {
+            if (item.filled) {
+                var gFill = _colorToGray(item.fillColor);
+                if (gFill) {
+                    item.fillColor = gFill;
+                    converted++;
+                }
+            }
+        } catch (e1) {}
+        try {
+            if (item.stroked) {
+                var gStroke = _colorToGray(item.strokeColor);
+                if (gStroke) {
+                    item.strokeColor = gStroke;
+                    converted++;
+                }
+            }
+        } catch (e2) {}
+    }
+    writeProgress('  Converted artwork to grayscale (' + converted + ' color updates)');
+}
+
 function processPair(pair, index) {
     var blankTemplateMode = !!(pair && (pair.blankTemplateMode || pair.mode === 'blank_template' || pair.processingMode === 'blank_template'));
     var orderData = pair.orderData || { info: '', gluetab: '', filename: '' };
@@ -1992,20 +2069,34 @@ function processPair(pair, index) {
         templateDoc.rgbProfile : templateDoc.cmykProfile;
     pdfOpts.colorConversionID = ColorConversion.COLORCONVERSIONREPURPOSE;
     pdfOpts.destinationProfile = destProfile;
-    writeProgress('  Saving lines PDF');
-    var linesPath = baseName + '_lines_' + pair.paper + '.pdf';
-    templateDoc.saveAs(File(linesPath), pdfOpts);
-    writeProgress('  Saved ' + linesPath);
+    var linesPath = '';
+    if (OUTPUT_LINED_PDF) {
+        writeProgress('  Saving lines PDF');
+        linesPath = baseName + '_lines_' + pair.paper + '.pdf';
+        templateDoc.saveAs(File(linesPath), pdfOpts);
+        writeProgress('  Saved ' + linesPath);
+    } else {
+        writeProgress('  Skipping lines PDF (disabled in diagnostics file output settings)');
+    }
     var templateLayer = templateDoc.layers['template'];
     waitStep();
     if (templateLayer) {
         writeProgress('  Hiding template layer');
         templateLayer.visible = false;
     }
-    writeProgress('  Saving flat PDF');
-    var flatPath = baseName + '_flat_' + pair.paper + '.pdf';
-    templateDoc.saveAs(File(flatPath), pdfOpts);
-    writeProgress('  Saved ' + flatPath);
+    var flatPath = '';
+    if (OUTPUT_FLAT_PDF) {
+        if (blankTemplateMode) {
+            writeProgress('  Converting blank template artwork to grayscale');
+            convertDocumentArtworkToGray(templateDoc);
+        }
+        writeProgress('  Saving flat PDF');
+        flatPath = baseName + '_flat_' + pair.paper + '.pdf';
+        templateDoc.saveAs(File(flatPath), pdfOpts);
+        writeProgress('  Saved ' + flatPath);
+    } else {
+        writeProgress('  Skipping flat PDF (disabled in diagnostics file output settings)');
+    }
     waitStep();
 
     writeProgress('Closing template');
@@ -2023,8 +2114,8 @@ function processPair(pair, index) {
         gluetab: orderData.gluetab,
         laminate: pair.laminate.name,
         paper: pair.paper,
-        lines: baseName + '_lines_' + pair.paper + '.pdf',
-        flat: baseName + '_flat_' + pair.paper + '.pdf',
+        lines: linesPath,
+        flat: flatPath,
         artPath: pair.artFile ? pair.artFile.fsName : '',
         templatePath: pair.templateFile ? pair.templateFile.fsName : '',
         filename: orderData.filename || ''

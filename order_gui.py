@@ -1879,6 +1879,8 @@ class App:
         self.chat_client = None
         self.appearance_var = tk.StringVar()
         self.diagnostic_var = tk.BooleanVar(value=False)
+        self.output_lines_var = tk.BooleanVar(value=True)
+        self.output_flat_var = tk.BooleanVar(value=True)
         self.review_flats_var = tk.BooleanVar(value=False)
         self.skip_po_no_page2_var = tk.BooleanVar(value=True)
         self.create_blank_po_no_page2_var = tk.BooleanVar(value=False)
@@ -1893,6 +1895,8 @@ class App:
 
         settings = load_settings()
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
+        self.output_lines_var.set(settings.get("output_lined_pdf", True))
+        self.output_flat_var.set(settings.get("output_flat_pdf", True))
         self.review_flats_var.set(settings.get("review_flats", False))
         self.skip_po_no_page2_var.set(settings.get("skip_po_no_page2", True))
         self.create_blank_po_no_page2_var.set(settings.get("create_blank_po_no_page2", False))
@@ -2018,6 +2022,21 @@ class App:
             variable=self.create_blank_po_no_page2_var,
             command=self.on_create_blank_po_no_page2_toggle,
         ).grid(row=row, column=0, sticky="w")
+        row += 1
+        file_output_frame = tk.LabelFrame(diag_frame, text="File Output")
+        file_output_frame.grid(row=row, column=0, sticky="we", padx=12, pady=(2, 4))
+        tk.Checkbutton(
+            file_output_frame,
+            text="Lined PDF",
+            variable=self.output_lines_var,
+            command=self.save_settings,
+        ).grid(row=0, column=0, sticky="w")
+        tk.Checkbutton(
+            file_output_frame,
+            text="Flat PDF",
+            variable=self.output_flat_var,
+            command=self.save_settings,
+        ).grid(row=1, column=0, sticky="w")
         row += 1
         tk.Button(
             diag_frame,
@@ -3022,6 +3041,8 @@ class App:
             "chat_api_url": self.chat_api_url_var.get(),
             "appearance_mode": self.appearance_var.get(),
             "diagnostic_mode": self.diagnostic_var.get(),
+            "output_lined_pdf": self.output_lines_var.get(),
+            "output_flat_pdf": self.output_flat_var.get(),
             "review_flats": self.review_flats_var.get(),
             "skip_po_no_page2": self.skip_po_no_page2_var.get(),
             "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
@@ -3879,6 +3900,8 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "output_lined_pdf": self.output_lines_var.get(),
+                "output_flat_pdf": self.output_flat_var.get(),
                 "skip_po_no_page2": self.skip_po_no_page2_var.get(),
                 "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
@@ -4871,6 +4894,8 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "output_lined_pdf": self.output_lines_var.get(),
+                "output_flat_pdf": self.output_flat_var.get(),
                 "skip_po_no_page2": self.skip_po_no_page2_var.get(),
                 "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
