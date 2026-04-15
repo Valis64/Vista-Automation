@@ -508,11 +508,21 @@ function buildOptions(data) {
         var item = items[i] || {};
         var blankTemplateMode = isBlankTemplateMode(pair, item);
         var processingMode = blankTemplateMode ? 'blank_template' : '';
+        var qtyRaw = (typeof pair.qty !== 'undefined') ? pair.qty : item.qty;
+        var qtyValue = Number(qtyRaw);
+        if (isNaN(qtyValue)) qtyValue = 0;
+        var sampleRaw = (typeof pair.sample !== 'undefined') ? pair.sample : item.sample;
+        var sampleFlag = (
+            sampleRaw === true || sampleRaw === 'true' || sampleRaw === 1 || sampleRaw === '1'
+        );
+        if (!sampleFlag && qtyValue === 11) sampleFlag = true;
 
         if (isSkipped(pair) || isSkipped(item)) {
             out.push({
                 skip: true,
                 skipReason: getSkipReason(pair, item),
+                qty: qtyValue,
+                sample: sampleFlag,
                 mode: processingMode,
                 processingMode: processingMode,
                 blankTemplateMode: blankTemplateMode,
@@ -535,6 +545,8 @@ function buildOptions(data) {
         var lam = getLamOption(pair.lamType || item.lamType);
         var paper = pair.paperType || item.paperType || '';
         out.push({
+            qty: qtyValue,
+            sample: sampleFlag,
             mode: processingMode,
             processingMode: processingMode,
             blankTemplateMode: blankTemplateMode,
