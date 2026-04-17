@@ -1772,6 +1772,10 @@ function _colorToGray(color) {
 function convertDocumentArtworkToGray(doc) {
     if (!doc) return;
     var converted = 0;
+
+    // Regression note: text-frame character fill/stroke colors are intentionally
+    // converted too (including laminate label text) so blank-template flat PDFs
+    // always save in grayscale.
     for (var i = 0; i < doc.pageItems.length; i++) {
         var item = doc.pageItems[i];
         if (!item) continue;
@@ -1794,6 +1798,34 @@ function convertDocumentArtworkToGray(doc) {
             }
         } catch (e2) {}
     }
+
+    for (var j = 0; j < doc.textFrames.length; j++) {
+        var frame = doc.textFrames[j];
+        if (!frame) continue;
+        try {
+            var textRange = frame.textRange;
+            if (textRange && textRange.characterAttributes) {
+                var textAttrs = textRange.characterAttributes;
+                var textFillGray = _colorToGray(textAttrs.fillColor);
+                if (textFillGray) {
+                    textAttrs.fillColor = textFillGray;
+                    converted++;
+                }
+            }
+        } catch (e3) {}
+        try {
+            var textRangeStroke = frame.textRange;
+            if (textRangeStroke && textRangeStroke.characterAttributes) {
+                var strokeAttrs = textRangeStroke.characterAttributes;
+                var textStrokeGray = _colorToGray(strokeAttrs.strokeColor);
+                if (textStrokeGray) {
+                    strokeAttrs.strokeColor = textStrokeGray;
+                    converted++;
+                }
+            }
+        } catch (e4) {}
+    }
+
     writeProgress('  Converted artwork to grayscale (' + converted + ' color updates)');
 }
 
