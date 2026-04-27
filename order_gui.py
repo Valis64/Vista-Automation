@@ -528,6 +528,20 @@ def prepare_flat_review_entries(
     return flat_entries, sample_entries
 
 
+def has_sample_pairs(pairs_data: Sequence[Mapping[str, Any]]) -> bool:
+    """Return ``True`` when any pair should be treated as a sample run."""
+    for pair in pairs_data:
+        if bool(pair.get("sample")):
+            return True
+        qty_value = pair.get("qty")
+        try:
+            if int(qty_value) == 11:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 SETTINGS_FILE = "settings.json"
 TEMPLATE_SETTINGS_DIR = APP_DIR / "template_settings"
 
@@ -4858,6 +4872,28 @@ class App:
                     items[idx]["skip_reason"] = combined_skip_reasons.get(idx, "")
             pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
+
+        if (
+            has_sample_pairs(pairs_data)
+            and not self.output_lines_var.get()
+            and not self.output_flat_var.get()
+        ):
+            self.run_start_time = None
+            self.last_run_start_time = None
+            self.run_id = ""
+            messagebox.showwarning(
+                "Sample output disabled",
+                (
+                    "One or more selected pairs are sample jobs (qty 11), but both "
+                    "'Output lined PDF' and 'Output flat PDF' are disabled.\n\n"
+                    "Illustrator was not launched because no sample PDFs would be "
+                    "produced.\n\n"
+                    "Hint: if 'Create blank template when no page 2 art found' is "
+                    "enabled, keep flat output on so blank-template samples can still "
+                    "generate the expected flat PDF."
+                ),
+            )
+            return
 
         self._apply_paired_page_results(pairs_data, selected_indices)
         flat_entries, sample_entries = prepare_flat_review_entries(

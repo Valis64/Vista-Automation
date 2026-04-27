@@ -16,6 +16,11 @@ class DummyVar:
 
 
 class SelectionHelperTest(unittest.TestCase):
+    def test_has_sample_pairs_detects_sample_flag_or_qty(self):
+        self.assertTrue(order_gui.has_sample_pairs([{"sample": True, "qty": 1}]))
+        self.assertTrue(order_gui.has_sample_pairs([{"sample": False, "qty": 11}]))
+        self.assertFalse(order_gui.has_sample_pairs([{"sample": False, "qty": 1}]))
+
     def test_get_selected_items_returns_pairs_and_indices(self):
         app = order_gui.App.__new__(order_gui.App)
         app.items = [
@@ -64,6 +69,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.create_blank_po_no_page2_var = DummyVar(True)
         app.preserve_color_var = DummyVar(True)
         app.convert_profile_var = DummyVar(False)
+        app.output_lines_var = DummyVar(True)
+        app.output_flat_var = DummyVar(True)
         app.run_id = ""
         app.order_info_vars = {
             "order_id": DummyVar("ORD"),
@@ -132,6 +139,8 @@ class SelectionHelperTest(unittest.TestCase):
         app.create_blank_po_no_page2_var = DummyVar(False)
         app.preserve_color_var = DummyVar(True)
         app.convert_profile_var = DummyVar(False)
+        app.output_lines_var = DummyVar(True)
+        app.output_flat_var = DummyVar(True)
         app.run_id = ""
         app.order_info_vars = {
             "order_id": DummyVar("ORD"),
@@ -168,6 +177,69 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertEqual(saved["items"][0].get("skip_reason"), "No Print Box")
         self.assertTrue(saved.get("skip_po_no_page2"))
         self.assertFalse(saved.get("create_blank_po_no_page2"))
+
+    def test_run_illustrator_blocks_sample_launch_when_outputs_disabled(self):
+        app = order_gui.App.__new__(order_gui.App)
+        app.sample_copy_info = []
+        app.items = [
+            {
+                "order_id": "A",
+                "art_dir": "art",
+                "template_dir": "temp",
+                "month_dir": "month",
+                "filename": "sample-job.pdf",
+                "gluetab": "left",
+            }
+        ]
+        app.batch_items = []
+        app.pairs = [{"art_id": "a1", "template": "t1", "order_id": "A"}]
+        app.batch_pairs = []
+        app.pair_vars = [DummyVar(True)]
+        app.index = 0
+        app.fields = {}
+        app.art_dir_var = DummyVar("art")
+        app.template_dir_var = DummyVar("temp")
+        app.month_dir_var = DummyVar("month")
+        app.order_id_var = DummyVar("ORD")
+        app.summary_var = DummyVar(True)
+        app.diagnostic_var = DummyVar(False)
+        app.skip_po_no_page2_var = DummyVar(False)
+        app.create_blank_po_no_page2_var = DummyVar(True)
+        app.preserve_color_var = DummyVar(True)
+        app.convert_profile_var = DummyVar(False)
+        app.output_lines_var = DummyVar(False)
+        app.output_flat_var = DummyVar(False)
+        app.run_id = ""
+        app.root = mock.Mock()
+        app.update_timer = mock.Mock()
+        app._apply_paired_page_results = mock.Mock()
+        app.save_settings = mock.Mock()
+        app.html_content = ""
+
+        with mock.patch("order_gui.messagebox.showerror"), mock.patch(
+            "order_gui.messagebox.showwarning"
+        ) as warn_mock, mock.patch(
+            "order_gui.find_art_file", return_value="art:a1"
+        ), mock.patch(
+            "order_gui._resolve_template_and_paper", return_value=("template:t1", "paper:t1")
+        ), mock.patch(
+            "order_gui.get_item_quantity", return_value=11
+        ), mock.patch(
+            "order_gui.detect_laminate", return_value=""
+        ), mock.patch(
+            "order_gui.is_coffee_sleeve", return_value=False
+        ), mock.patch(
+            "order_gui.resolve_paired_page_art",
+            return_value=({}, set(), {}, set()),
+        ), mock.patch(
+            "order_gui.save_order_data"
+        ) as save_mock:
+            app.run_illustrator()
+
+        warn_mock.assert_called_once()
+        self.assertIn("no sample PDFs would be produced", warn_mock.call_args.args[1])
+        save_mock.assert_not_called()
+        app._apply_paired_page_results.assert_not_called()
 
 
 if __name__ == "__main__":
