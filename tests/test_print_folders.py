@@ -35,6 +35,11 @@ class ResolvePrintFolderTest(unittest.TestCase):
         folder = resolve_print_output_folder(str(extracted_page), template_code="PO123")
         self.assertEqual(Path(folder), extracted_page.parents[2] / PRINT_FOLDER_NAME)
 
+    def test_po_blank_template_missing_page2_uses_page1_order_print_folder(self):
+        page1_art = self.art_path.parent / "ART002" / "ART002_page1.pdf"
+        folder = resolve_print_output_folder(str(page1_art), template_code="PO2B")
+        self.assertEqual(Path(folder), page1_art.parents[2] / PRINT_FOLDER_NAME)
+
     def test_po_template_keeps_one_level_up_for_standard_art_subfolders(self):
         nested_art = self.art_path.parent / "ART001" / "art_file.pdf"
         folder = resolve_print_output_folder(str(nested_art), template_code="PO123")

@@ -222,6 +222,38 @@ function getAncestorFolder(entry, generations) {
     return current;
 }
 
+function resolvePairDestinationRoot(pair) {
+    if (!pair) return null;
+
+    var outputRootPath = pair.outputRootArtPath;
+    if (!outputRootPath && pair.output_root_path) outputRootPath = pair.output_root_path;
+
+    var destRoot = null;
+    if (outputRootPath) {
+        var outputRootEntry = null;
+        if (outputRootPath instanceof File || outputRootPath instanceof Folder) {
+            outputRootEntry = outputRootPath;
+        } else {
+            outputRootEntry = File(String(outputRootPath));
+        }
+        destRoot = getAncestorFolder(outputRootEntry, 1);
+    }
+
+    if (!destRoot && pair.artFile) {
+        destRoot = getAncestorFolder(pair.artFile, 1);
+    }
+
+    if (!destRoot && pair.templateFile) {
+        destRoot = getAncestorFolder(pair.templateFile, 1);
+    }
+
+    if (destRoot && !(destRoot instanceof Folder)) {
+        destRoot = new Folder(destRoot);
+    }
+
+    return destRoot;
+}
+
 function downloadHTML(url) {
     var dest = Folder.temp.fsName + '/order_' + Date.now() + '.html';
     var cmd;
@@ -536,6 +568,7 @@ function buildOptions(data) {
                     paperType: pair.paperType || item.paperType || ''
                 },
                 artFile: pair.art_path ? File(pair.art_path) : null,
+                outputRootArtPath: pair.output_root_path || pair.art_path || item.art_path || '',
                 templateFile: pair.template_path ? File(pair.template_path) : null,
                 templateCode: pair.template || item.templateName || ''
             });
@@ -551,6 +584,7 @@ function buildOptions(data) {
             processingMode: processingMode,
             blankTemplateMode: blankTemplateMode,
             artFile: (pair.art_path && !blankTemplateMode) ? File(pair.art_path) : null,
+            outputRootArtPath: pair.output_root_path || pair.art_path || item.art_path || '',
             templateFile: pair.template_path ? File(pair.template_path) : null,
             templateCode: pair.template || item.templateName || '',
             laminate: lam,
@@ -2091,10 +2125,7 @@ function processPair(pair, index) {
             isPTemplate = true;
         }
     }
-    var destRoot = pair.artFile ? getAncestorFolder(pair.artFile, 1) : getAncestorFolder(pair.templateFile, 1);
-    if (destRoot && !(destRoot instanceof Folder)) {
-        destRoot = new Folder(destRoot);
-    }
+    var destRoot = resolvePairDestinationRoot(pair);
     if (orderData.filename) {
         if (destRoot) {
             var folderName = DIAGNOSTIC_MODE ? '--DO NOT USE - PRINT--' : PRINT_FOLDER_NAME;
