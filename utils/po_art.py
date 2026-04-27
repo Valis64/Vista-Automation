@@ -277,6 +277,21 @@ def _derive_expected_art_id(
     return ""
 
 
+def _is_sample_job(entry: dict, context: dict) -> bool:
+    for source in (entry, context):
+        sample_value = source.get("sample")
+        if sample_value in (True, "true", 1, "1"):
+            return True
+    for source in (entry, context):
+        qty_value = source.get("qty")
+        try:
+            if qty_value is not None and int(qty_value) == 11:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def resolve_paired_page_art(
     entries: Sequence[dict],
     contexts: Sequence[dict],
@@ -309,6 +324,17 @@ def resolve_paired_page_art(
         for info in buckets:
             base_idx = info.get("base")
             mate_idx = info.get("mate")
+            mate_entry = (
+                entries[mate_idx]
+                if mate_idx is not None and mate_idx < len(entries)
+                else {}
+            )
+            mate_context = (
+                contexts[mate_idx]
+                if mate_idx is not None and mate_idx < len(contexts)
+                else {}
+            )
+            mate_is_sample = _is_sample_job(mate_entry, mate_context)
             mate_template = (
                 entries[mate_idx].get("template", "")
                 if mate_idx is not None and mate_idx < len(entries)
@@ -401,7 +427,7 @@ def resolve_paired_page_art(
                     elif page2:
                         assignments[mate_idx] = page2
                     else:
-                        if no_page2_policy == "blank_template":
+                        if no_page2_policy == "blank_template" and mate_is_sample:
                             blank_template_indices.add(mate_idx)
                             logger(
                                 f"Warning: page2.pdf not found for {base_code} in {folder}; marking template {entries[mate_idx].get('template', base_code + 'B')} for blank-template output."
@@ -417,7 +443,7 @@ def resolve_paired_page_art(
                     page_count = _pdf_page_count(base_art_path)
                     if page_count is not None and page_count < 2:
                         mate_missing_second_page = True
-                        if no_page2_policy == "blank_template":
+                        if no_page2_policy == "blank_template" and mate_is_sample:
                             blank_template_indices.add(mate_idx)
                             logger(
                                 f"Warning: base art {base_art_path} has only {page_count} page(s); marking template {mate_label} for blank-template output."
