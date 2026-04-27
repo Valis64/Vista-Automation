@@ -16,7 +16,16 @@ from utils.po_art import resolve_paired_page_art
 
 
 class ResolvePairedPageArtTests(unittest.TestCase):
-    def _build_context(self, art_id: str, order_id: str, month_root: str, art_path: str = "") -> dict:
+    def _build_context(
+        self,
+        art_id: str,
+        order_id: str,
+        month_root: str,
+        art_path: str = "",
+        *,
+        qty: int = 0,
+        sample: bool = False,
+    ) -> dict:
         return {
             "art_id": art_id,
             "order_id": order_id,
@@ -24,6 +33,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             "art_root": "",
             "art_path": art_path,
             "template": "",
+            "qty": qty,
+            "sample": sample,
         }
 
     def test_maps_pages_for_base_and_mate(self):
@@ -44,8 +55,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO1B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp),
-                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
             ]
             logs: list[str] = []
 
@@ -74,8 +85,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO2B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp),
-                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
             ]
             logs: list[str] = []
 
@@ -103,8 +114,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO2B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp),
-                self._build_context(art_id, order_id, tmp),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
+                self._build_context(art_id, order_id, tmp, qty=11, sample=True),
             ]
             logs: list[str] = []
 
@@ -122,6 +133,40 @@ class ResolvePairedPageArtTests(unittest.TestCase):
             self.assertNotIn(1, skip_reasons)
             self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
             self.assertTrue(any("blank-template output" in msg for msg in logs))
+
+    def test_missing_page2_non_sample_skips_even_when_blank_policy_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            order_id = "54322"
+            art_id = "ART002A"
+            folder = os.path.join(tmp, order_id, "art", art_id)
+            os.makedirs(folder, exist_ok=True)
+            page1 = os.path.join(folder, f"{art_id}_page1.pdf")
+            with open(page1, "w", encoding="utf-8"):
+                pass
+
+            entries = [
+                {"template": "PO2", "art_path": ""},
+                {"template": "PO2B", "art_path": ""},
+            ]
+            contexts = [
+                self._build_context(art_id, order_id, tmp, qty=250, sample=False),
+                self._build_context(art_id, order_id, tmp, qty=250, sample=False),
+            ]
+            logs: list[str] = []
+
+            assignments, skips, skip_reasons, blank_template_indices = resolve_paired_page_art(
+                entries,
+                contexts,
+                logs.append,
+                no_page2_policy="blank_template",
+            )
+
+            self.assertEqual(assignments.get(0), page1)
+            self.assertIn(1, skips)
+            self.assertEqual(skip_reasons.get(1), "Missing page2.pdf")
+            self.assertNotIn(1, blank_template_indices)
+            self.assertTrue(any("page2.pdf not found" in msg for msg in logs))
+            self.assertFalse(any("blank-template output" in msg for msg in logs))
 
     def test_missing_mate_logs_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -255,8 +300,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO20B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp, base_art),
-                self._build_context("", order_id, tmp, ""),
+                self._build_context(art_id, order_id, tmp, base_art, qty=11, sample=True),
+                self._build_context("", order_id, tmp, "", qty=11, sample=True),
             ]
             logs: list[str] = []
 
@@ -289,8 +334,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO21B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp, base_art),
-                self._build_context("", order_id, tmp, ""),
+                self._build_context(art_id, order_id, tmp, base_art, qty=11, sample=True),
+                self._build_context("", order_id, tmp, "", qty=11, sample=True),
             ]
             for (
                 no_page2_policy,

@@ -3848,6 +3848,8 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            qty = get_item_quantity(lookup_item)
+            sample = qty == 11
             skip_flag = bool(pair.get("skip"))
             skip_reason = pair.get("skip_reason", "")
             if skip_flag:
@@ -3862,6 +3864,8 @@ class App:
                     "template_path": temp_path,
                     "paperType": paper,
                     "lamType": lam,
+                    "qty": qty,
+                    "sample": sample,
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -3874,6 +3878,8 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "qty": qty,
+                    "sample": sample,
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -4178,6 +4184,10 @@ class App:
                             or item.get("art_path")
                             or find_art_file(art_root, art_id, month_root, order_id, filename_hint)
                         )
+                        lookup_item = dict(item)
+                        lookup_item.update(pair)
+                        qty = get_item_quantity(lookup_item)
+                        sample = qty == 11
                         skip_flag = bool(pair.get("skip"))
                         skip_reason = pair.get("skip_reason", "")
                         if skip_flag:
@@ -4190,6 +4200,8 @@ class App:
                                 "art_id": art_id,
                                 "template": template,
                                 "art_path": art_path,
+                                "qty": qty,
+                                "sample": sample,
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
@@ -4202,6 +4214,8 @@ class App:
                                 "order_id": order_id,
                                 "art_path": art_path,
                                 "template": template,
+                                "qty": qty,
+                                "sample": sample,
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
@@ -4838,6 +4852,8 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "qty": qty,
+                    "sample": sample,
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
