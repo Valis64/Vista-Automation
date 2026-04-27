@@ -2127,8 +2127,16 @@ function processPair(pair, index) {
     pdfOpts.colorConversionID = ColorConversion.COLORCONVERSIONREPURPOSE;
     pdfOpts.destinationProfile = destProfile;
     var sampleJob = isSamplePair(pair);
-    var saveLines = sampleJob ? OUTPUT_LINED_PDF : true;
-    var saveFlat = sampleJob ? OUTPUT_FLAT_PDF : true;
+    var saveLines = true;
+    var saveFlat = true;
+    if (blankTemplateMode) {
+        saveLines = false;
+        saveFlat = true;
+        writeProgress('  Blank-template output policy active: skipping lines PDF and forcing flat PDF output');
+    } else if (sampleJob) {
+        saveLines = OUTPUT_LINED_PDF;
+        saveFlat = OUTPUT_FLAT_PDF;
+    }
     var linesPath = '';
     if (saveLines) {
         writeProgress('  Saving lines PDF');
@@ -2136,7 +2144,11 @@ function processPair(pair, index) {
         templateDoc.saveAs(File(linesPath), pdfOpts);
         writeProgress('  Saved ' + linesPath);
     } else {
-        writeProgress('  Skipping lines PDF for sample job (disabled in diagnostics sample file output settings)');
+        if (blankTemplateMode) {
+            writeProgress('  Skipping lines PDF due to blank-template policy');
+        } else if (sampleJob) {
+            writeProgress('  Skipping lines PDF for sample diagnostics (disabled in diagnostics sample file output settings)');
+        }
     }
     var templateLayer = templateDoc.layers['template'];
     waitStep();
@@ -2155,7 +2167,11 @@ function processPair(pair, index) {
         templateDoc.saveAs(File(flatPath), pdfOpts);
         writeProgress('  Saved ' + flatPath);
     } else {
-        writeProgress('  Skipping flat PDF for sample job (disabled in diagnostics sample file output settings)');
+        if (blankTemplateMode) {
+            writeProgress('  Skipping flat PDF due to blank-template policy');
+        } else if (sampleJob) {
+            writeProgress('  Skipping flat PDF for sample diagnostics (disabled in diagnostics sample file output settings)');
+        }
     }
     waitStep();
 
