@@ -562,11 +562,15 @@ def get_sample_quantity(settings_or_value=None) -> int:
 
 
 def is_sample_quantity(qty: Any, sample_qty: int | None = None) -> bool:
-    """Return whether ``qty`` matches the configured sample quantity."""
+    """Return whether ``qty`` falls in the configured sample quantity range."""
     try:
-        return int(qty) == get_sample_quantity(sample_qty)
+        quantity = int(qty)
     except (TypeError, ValueError):
         return False
+    configured_sample_qty = get_sample_quantity(sample_qty)
+    lower_bound = min(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    upper_bound = max(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    return lower_bound <= quantity <= upper_bound
 
 
 def has_sample_pairs(
@@ -2073,6 +2077,11 @@ class App:
         tk.Entry(diag_frame, textvariable=self.sample_quantity_var, width=10).grid(
             row=row, column=1, padx=5, pady=2, sticky="w"
         )
+        tk.Button(
+            diag_frame,
+            text="Update Settings",
+            command=self.save_settings,
+        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
         row += 1
         file_output_frame = tk.LabelFrame(diag_frame, text="File Output")
         file_output_frame.grid(row=row, column=0, sticky="we", padx=12, pady=(2, 4))

@@ -28,8 +28,17 @@ class SelectionHelperTest(unittest.TestCase):
                 [{"sample": False, "qty": 101, "sample_quantity": 101}]
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             order_gui.has_sample_pairs([{"sample": False, "qty": 11}], sample_qty=101)
+        )
+        self.assertTrue(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 100}], sample_qty=101)
+        )
+        self.assertFalse(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 10}], sample_qty=101)
+        )
+        self.assertFalse(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 102}], sample_qty=101)
         )
 
     def test_sample_quantity_normalizes_invalid_values_to_default(self):

@@ -29,9 +29,13 @@ def _get_sample_quantity(value=None) -> int:
 
 def _is_sample_quantity(qty, sample_qty=None) -> bool:
     try:
-        return int(qty) == _get_sample_quantity(sample_qty)
+        quantity = int(qty)
     except (TypeError, ValueError):
         return False
+    configured_sample_qty = _get_sample_quantity(sample_qty)
+    lower_bound = min(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    upper_bound = max(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    return lower_bound <= quantity <= upper_bound
 
 
 __all__ = ["resolve_paired_page_art"]

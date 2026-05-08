@@ -149,8 +149,8 @@ class ResolvePairedPageArtTests(unittest.TestCase):
                 {"template": "PO2B", "art_path": ""},
             ]
             contexts = [
-                self._build_context(art_id, order_id, tmp, qty=101, sample=False),
-                self._build_context(art_id, order_id, tmp, qty=101, sample=False),
+                self._build_context(art_id, order_id, tmp, qty=100, sample=False),
+                self._build_context(art_id, order_id, tmp, qty=100, sample=False),
             ]
             for context in contexts:
                 context["sample_quantity"] = 101
