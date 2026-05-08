@@ -20,6 +20,78 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertTrue(order_gui.has_sample_pairs([{"sample": True, "qty": 1}]))
         self.assertTrue(order_gui.has_sample_pairs([{"sample": False, "qty": 11}]))
         self.assertFalse(order_gui.has_sample_pairs([{"sample": False, "qty": 1}]))
+        self.assertTrue(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 101}], sample_qty=101)
+        )
+        self.assertTrue(
+            order_gui.has_sample_pairs(
+                [{"sample": False, "qty": 101, "sample_quantity": 101}]
+            )
+        )
+        self.assertTrue(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 11}], sample_qty=101)
+        )
+        self.assertTrue(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 100}], sample_qty=101)
+        )
+        self.assertFalse(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 10}], sample_qty=101)
+        )
+        self.assertFalse(
+            order_gui.has_sample_pairs([{"sample": False, "qty": 102}], sample_qty=101)
+        )
+
+    def test_sample_quantity_normalizes_invalid_values_to_default(self):
+        self.assertEqual(order_gui.get_sample_quantity({}), order_gui.DEFAULT_SAMPLE_QUANTITY)
+        self.assertEqual(order_gui.get_sample_quantity({"sample_quantity": ""}), 11)
+        self.assertEqual(order_gui.get_sample_quantity({"sample_quantity": "0"}), 11)
+        self.assertEqual(order_gui.get_sample_quantity({"sample_quantity": "abc"}), 11)
+        self.assertEqual(order_gui.get_sample_quantity({"sample_quantity": "101"}), 101)
+
+    def test_save_settings_persists_normalized_sample_quantity(self):
+        app = order_gui.App.__new__(order_gui.App)
+        app.login_url_var = DummyVar("")
+        app.username_var = DummyVar("")
+        app.password_var = DummyVar("")
+        app.queue_login_url_var = DummyVar("")
+        app.queue_username_var = DummyVar("")
+        app.queue_password_var = DummyVar("")
+        app.queue_page_var = DummyVar("")
+        app.ill_path_var = DummyVar("illustrator")
+        app.art_dir_var = DummyVar("art")
+        app.template_dir_var = DummyVar("templates")
+        app.month_dir_var = DummyVar("month")
+        app.order_id_var = DummyVar("ORD")
+        app.summary_var = DummyVar(False)
+        app.art_server_var = DummyVar("")
+        app.gdrive_var = DummyVar("")
+        app.chat_api_key_var = DummyVar("")
+        app.chat_api_url_var = DummyVar(order_gui.CHAT_API_URL)
+        app.appearance_var = DummyVar("System")
+        app.diagnostic_var = DummyVar(False)
+        app.sample_quantity_var = DummyVar("101")
+        app.output_lines_var = DummyVar(True)
+        app.output_flat_var = DummyVar(True)
+        app.review_flats_var = DummyVar(False)
+        app.skip_po_no_page2_var = DummyVar(True)
+        app.create_blank_po_no_page2_var = DummyVar(False)
+        app.preserve_color_var = DummyVar(False)
+        app.convert_profile_var = DummyVar(False)
+
+        with mock.patch("order_gui.save_settings") as save_mock:
+            app.save_settings()
+
+        saved = save_mock.call_args.args[0]
+        self.assertEqual(saved["sample_quantity"], 101)
+        self.assertEqual(app.sample_quantity_var.get(), "101")
+
+        app.sample_quantity_var.set("bad")
+        with mock.patch("order_gui.save_settings") as save_mock:
+            app.save_settings()
+
+        saved = save_mock.call_args.args[0]
+        self.assertEqual(saved["sample_quantity"], order_gui.DEFAULT_SAMPLE_QUANTITY)
+        self.assertEqual(app.sample_quantity_var.get(), str(order_gui.DEFAULT_SAMPLE_QUANTITY))
 
     def test_get_selected_items_returns_pairs_and_indices(self):
         app = order_gui.App.__new__(order_gui.App)

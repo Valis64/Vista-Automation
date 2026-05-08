@@ -10,6 +10,34 @@ from typing import Callable, Literal, Sequence
 import fitz
 
 
+DEFAULT_SAMPLE_QUANTITY = 11
+
+
+def _get_sample_quantity(value=None) -> int:
+    if isinstance(value, dict):
+        value = value.get("sample_quantity", DEFAULT_SAMPLE_QUANTITY)
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+        quantity = int(value)
+        if quantity > 0:
+            return quantity
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_SAMPLE_QUANTITY
+
+
+def _is_sample_quantity(qty, sample_qty=None) -> bool:
+    try:
+        quantity = int(qty)
+    except (TypeError, ValueError):
+        return False
+    configured_sample_qty = _get_sample_quantity(sample_qty)
+    lower_bound = min(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    upper_bound = max(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    return lower_bound <= quantity <= upper_bound
+
+
 __all__ = ["resolve_paired_page_art"]
 
 
@@ -282,13 +310,13 @@ def _is_sample_job(entry: dict, context: dict) -> bool:
         sample_value = source.get("sample")
         if sample_value in (True, "true", 1, "1"):
             return True
+    configured_sample_qty = _get_sample_quantity(
+        context.get("sample_quantity", entry.get("sample_quantity", DEFAULT_SAMPLE_QUANTITY))
+    )
     for source in (entry, context):
         qty_value = source.get("qty")
-        try:
-            if qty_value is not None and int(qty_value) == 11:
-                return True
-        except (TypeError, ValueError):
-            continue
+        if qty_value is not None and _is_sample_quantity(qty_value, configured_sample_qty):
+            return True
     return False
 
 

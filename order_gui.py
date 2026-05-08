@@ -528,20 +528,6 @@ def prepare_flat_review_entries(
     return flat_entries, sample_entries
 
 
-def has_sample_pairs(pairs_data: Sequence[Mapping[str, Any]]) -> bool:
-    """Return ``True`` when any pair should be treated as a sample run."""
-    for pair in pairs_data:
-        if bool(pair.get("sample")):
-            return True
-        qty_value = pair.get("qty")
-        try:
-            if int(qty_value) == 11:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
-
-
 SETTINGS_FILE = "settings.json"
 TEMPLATE_SETTINGS_DIR = APP_DIR / "template_settings"
 
@@ -555,6 +541,52 @@ QUEUE_PAGE_URL = ""
 # Default ChatGPT API base URL
 CHAT_API_URL = "https://api.openai.com/v1"
 
+# Default order quantity that should use sample templates/output behavior.
+DEFAULT_SAMPLE_QUANTITY = 11
+
+
+def get_sample_quantity(settings_or_value=None) -> int:
+    """Return a positive sample quantity from settings or a raw value."""
+    value = settings_or_value
+    if isinstance(settings_or_value, Mapping):
+        value = settings_or_value.get("sample_quantity", DEFAULT_SAMPLE_QUANTITY)
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+        quantity = int(value)
+        if quantity > 0:
+            return quantity
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_SAMPLE_QUANTITY
+
+
+def is_sample_quantity(qty: Any, sample_qty: int | None = None) -> bool:
+    """Return whether ``qty`` falls in the configured sample quantity range."""
+    try:
+        quantity = int(qty)
+    except (TypeError, ValueError):
+        return False
+    configured_sample_qty = get_sample_quantity(sample_qty)
+    lower_bound = min(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    upper_bound = max(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    return lower_bound <= quantity <= upper_bound
+
+
+def has_sample_pairs(
+    pairs_data: Sequence[Mapping[str, Any]], sample_qty: int | None = None
+) -> bool:
+    """Return ``True`` when any pair should be treated as a sample run."""
+    configured_sample_qty = get_sample_quantity(sample_qty)
+    for pair in pairs_data:
+        if bool(pair.get("sample")):
+            return True
+        pair_sample_qty = get_sample_quantity(
+            pair.get("sample_quantity", configured_sample_qty)
+        )
+        if is_sample_quantity(pair.get("qty"), pair_sample_qty):
+            return True
+    return False
 
 
 def get_queue_headers(referer: str | None = None) -> dict[str, str]:
@@ -1075,7 +1107,7 @@ def _resolve_template_and_paper(
     """Return ``(template_path, paper_type)`` using shared sample rules."""
     context = dict(item_dict or {})
     quantity = get_item_quantity(context)
-    is_sample = quantity == 11
+    is_sample = is_sample_quantity(quantity, context.get("sample_quantity"))
     sample_matcher = build_sample_template_matcher(context)
     template_path = find_template_file(
         temp_root,
@@ -1893,6 +1925,7 @@ class App:
         self.chat_client = None
         self.appearance_var = tk.StringVar()
         self.diagnostic_var = tk.BooleanVar(value=False)
+        self.sample_quantity_var = tk.StringVar()
         self.output_lines_var = tk.BooleanVar(value=True)
         self.output_flat_var = tk.BooleanVar(value=True)
         self.review_flats_var = tk.BooleanVar(value=False)
@@ -1909,6 +1942,7 @@ class App:
 
         settings = load_settings()
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
+        self.sample_quantity_var.set(str(get_sample_quantity(settings)))
         self.output_lines_var.set(settings.get("output_lined_pdf", True))
         self.output_flat_var.set(settings.get("output_flat_pdf", True))
         self.review_flats_var.set(settings.get("review_flats", False))
@@ -2037,11 +2071,23 @@ class App:
             command=self.on_create_blank_po_no_page2_toggle,
         ).grid(row=row, column=0, sticky="w")
         row += 1
+        tk.Label(diag_frame, text="Sample template quantity").grid(
+            row=row, column=0, sticky="w"
+        )
+        tk.Entry(diag_frame, textvariable=self.sample_quantity_var, width=10).grid(
+            row=row, column=1, padx=5, pady=2, sticky="w"
+        )
+        tk.Button(
+            diag_frame,
+            text="Update Settings",
+            command=self.save_settings,
+        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+        row += 1
         file_output_frame = tk.LabelFrame(diag_frame, text="File Output")
         file_output_frame.grid(row=row, column=0, sticky="we", padx=12, pady=(2, 4))
         tk.Label(
             file_output_frame,
-            text="Sample jobs only (qty 11). Non-sample jobs always save lined + flat.",
+            text="Sample jobs only. Non-sample jobs always save lined + flat.",
         ).grid(row=0, column=0, sticky="w")
         tk.Checkbutton(
             file_output_frame,
@@ -3038,7 +3084,18 @@ class App:
         code = self.cur_template_var.get().strip().upper()
         self.open_template_settings_editor(code=code or None)
 
+    def get_sample_quantity(self) -> int:
+        sample_var = getattr(self, "sample_quantity_var", None)
+        value = sample_var.get() if sample_var is not None else None
+        return get_sample_quantity(value)
+
+    def is_sample_job_qty(self, qty: Any) -> bool:
+        return is_sample_quantity(qty, self.get_sample_quantity())
+
     def save_settings(self):
+        normalized_sample_quantity = self.get_sample_quantity()
+        if hasattr(self, "sample_quantity_var"):
+            self.sample_quantity_var.set(str(normalized_sample_quantity))
         data = {
             "login_url": self.login_url_var.get(),
             "username": self.username_var.get(),
@@ -3059,6 +3116,7 @@ class App:
             "chat_api_url": self.chat_api_url_var.get(),
             "appearance_mode": self.appearance_var.get(),
             "diagnostic_mode": self.diagnostic_var.get(),
+            "sample_quantity": normalized_sample_quantity,
             "output_lined_pdf": self.output_lines_var.get(),
             "output_flat_pdf": self.output_flat_var.get(),
             "review_flats": self.review_flats_var.get(),
@@ -3441,7 +3499,7 @@ class App:
             if not code:
                 continue
             qty = get_item_quantity(items[idx]) if idx < len(items) else 0
-            sample = qty == 11
+            sample = self.is_sample_job_qty(qty)
             sample_matcher = build_sample_template_matcher(
                 p,
                 items[idx] if idx < len(items) else None,
@@ -3570,6 +3628,7 @@ class App:
             lookup_item = dict(item)
             if current_pairs and self.index < len(current_pairs):
                 lookup_item.update(current_pairs[self.index])
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
             path, paper = _resolve_template_and_paper(
                 self.template_dir_var.get(),
                 template,
@@ -3839,6 +3898,7 @@ class App:
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             lookup_item = dict(it)
             lookup_item.update(pair)
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
             temp_path, paper = _resolve_template_and_paper(
                 temp_root,
                 template,
@@ -3849,7 +3909,7 @@ class App:
                 lam = "Uncoated"
             it["paperType"] = paper
             qty = get_item_quantity(lookup_item)
-            sample = qty == 11
+            sample = self.is_sample_job_qty(qty)
             skip_flag = bool(pair.get("skip"))
             skip_reason = pair.get("skip_reason", "")
             if skip_flag:
@@ -3866,6 +3926,7 @@ class App:
                     "lamType": lam,
                     "qty": qty,
                     "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -3880,6 +3941,7 @@ class App:
                     "template": template,
                     "qty": qty,
                     "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -3924,6 +3986,7 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "sample_quantity": self.get_sample_quantity(),
                 "output_lined_pdf": self.output_lines_var.get(),
                 "output_flat_pdf": self.output_flat_var.get(),
                 "skip_po_no_page2": self.skip_po_no_page2_var.get(),
@@ -4186,8 +4249,9 @@ class App:
                         )
                         lookup_item = dict(item)
                         lookup_item.update(pair)
+                        lookup_item["sample_quantity"] = self.get_sample_quantity()
                         qty = get_item_quantity(lookup_item)
-                        sample = qty == 11
+                        sample = self.is_sample_job_qty(qty)
                         skip_flag = bool(pair.get("skip"))
                         skip_reason = pair.get("skip_reason", "")
                         if skip_flag:
@@ -4202,6 +4266,7 @@ class App:
                                 "art_path": art_path,
                                 "qty": qty,
                                 "sample": sample,
+                                "sample_quantity": self.get_sample_quantity(),
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
@@ -4216,6 +4281,7 @@ class App:
                                 "template": template,
                                 "qty": qty,
                                 "sample": sample,
+                                "sample_quantity": self.get_sample_quantity(),
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
@@ -4791,8 +4857,9 @@ class App:
             art_path = find_art_file(art_root, art_id, month_root, order_id)
             lookup_item = dict(it)
             lookup_item.update(pair)
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
             qty = get_item_quantity(lookup_item)
-            sample = qty == 11
+            sample = self.is_sample_job_qty(qty)
             temp_path, paper = _resolve_template_and_paper(
                 temp_root,
                 template,
@@ -4824,6 +4891,7 @@ class App:
                     "art_path": art_path,
                     "template_path": temp_path,
                     "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "cut_src": cut_file_for_template(temp_path) if sample else "",
                     "company": it.get("company", ""),
                     "created_by": it.get("created_by", ""),
@@ -4836,6 +4904,7 @@ class App:
                 "template_path": temp_path,
                 "qty": qty,
                 "sample": sample,
+                "sample_quantity": self.get_sample_quantity(),
                 "paperType": paper,
                 "lamType": lam,
                 "order_id": order_id,
@@ -4854,6 +4923,7 @@ class App:
                     "template": template,
                     "qty": qty,
                     "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -4890,7 +4960,7 @@ class App:
             pair_orders.append(pair_orders_src[idx])
 
         if (
-            has_sample_pairs(pairs_data)
+            has_sample_pairs(pairs_data, self.get_sample_quantity())
             and not self.output_lines_var.get()
             and not self.output_flat_var.get()
         ):
@@ -4900,7 +4970,7 @@ class App:
             messagebox.showwarning(
                 "Sample output disabled",
                 (
-                    "One or more selected pairs are sample jobs (qty 11), but both "
+                    "One or more selected pairs are sample jobs, but both "
                     "'Output lined PDF' and 'Output flat PDF' are disabled.\n\n"
                     "Illustrator was not launched because no sample PDFs would be "
                     "produced.\n\n"
@@ -4951,6 +5021,7 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "sample_quantity": self.get_sample_quantity(),
                 "output_lined_pdf": self.output_lines_var.get(),
                 "output_flat_pdf": self.output_flat_var.get(),
                 "skip_po_no_page2": self.skip_po_no_page2_var.get(),
