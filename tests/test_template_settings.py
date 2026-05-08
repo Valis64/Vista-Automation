@@ -52,6 +52,7 @@ class TemplateSettingsTest(unittest.TestCase):
         self.assertFalse(settings.get("mirror"))
         self.assertEqual(settings.get("artworkScale"), 1)
         self.assertEqual(settings.get("alignment"), "center")
+        self.assertEqual(settings.get("bleedMode"), "auto")
 
     def test_save_and_load(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +138,8 @@ class TemplateSettingsTest(unittest.TestCase):
         self.assertTrue(validate_template_settings({"mirror": True}))
         self.assertTrue(validate_template_settings({"artworkScale": 1.2}))
         self.assertTrue(validate_template_settings({"alignment": "center"}))
+        self.assertTrue(validate_template_settings({"bleedMode": "auto"}))
+        self.assertTrue(validate_template_settings({"bleedMode": "manual"}))
         with self.assertRaises(ValueError):
             validate_template_settings({"rotation": "90"})
         with self.assertRaises(ValueError):
@@ -147,6 +150,31 @@ class TemplateSettingsTest(unittest.TestCase):
             validate_template_settings({"extra": 1})
         with self.assertRaises(ValueError):
             validate_template_settings({"alignment": "diagonal"})
+        with self.assertRaises(ValueError):
+            validate_template_settings({"bleedMode": "legacy"})
+
+    def test_bleed_mode_normalization_and_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema = {
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "Template settings",
+                "type": "object",
+                "properties": {
+                    "bleedMode": {
+                        "type": "string",
+                        "enum": ["auto", "manual"],
+                    }
+                },
+                "additionalProperties": False,
+            }
+            Path(tmp, "schema.json").write_text(json.dumps(schema))
+            Path(tmp, "ZZ0004.json").write_text(json.dumps({"bleedMode": "MANUAL"}))
+            Path(tmp, "ZZ0005.json").write_text(json.dumps({}))
+            with patch("utils.common.TEMPLATE_SETTINGS_DIR", Path(tmp)):
+                manual_data = load_template_settings("ZZ0004")
+                self.assertEqual(manual_data["bleedMode"], "manual")
+                default_data = load_template_settings("ZZ0005")
+                self.assertEqual(default_data["bleedMode"], "auto")
 
     def test_alignment_normalization(self):
         with tempfile.TemporaryDirectory() as tmp:

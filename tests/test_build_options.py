@@ -1,25 +1,19 @@
 import json
 import re
 import subprocess
+import textwrap
 from pathlib import Path
 from string import Template
-import textwrap
 
 
-def _extract_build_options_sources():
-    source = Path("template_creator.jsx").read_text()
-
-    lam_match = re.search(r"var LAM_OPTIONS = [\s\S]*?];", source)
-    if not lam_match:
-        raise AssertionError("LAM_OPTIONS definition not found")
-
-    build_start = source.find("function buildOptions(data)")
-    if build_start == -1:
-        raise AssertionError("buildOptions definition not found")
+def _extract_function_source(source: str, function_name: str) -> str:
+    start = source.find(f"function {function_name}")
+    if start == -1:
+        raise AssertionError(f"{function_name} definition not found")
 
     brace_depth = 0
     end_idx = None
-    for idx in range(build_start, len(source)):
+    for idx in range(start, len(source)):
         char = source[idx]
         if char == "{":
             brace_depth += 1
@@ -29,9 +23,19 @@ def _extract_build_options_sources():
                 end_idx = idx
                 break
     if end_idx is None:
-        raise AssertionError("Failed to locate end of buildOptions")
+        raise AssertionError(f"Failed to locate end of {function_name}")
 
-    build_source = source[build_start:end_idx + 1]
+    return source[start : end_idx + 1]
+
+
+def _extract_build_options_sources():
+    source = Path("template_creator.jsx").read_text()
+
+    lam_match = re.search(r"var LAM_OPTIONS = [\s\S]*?];", source)
+    if not lam_match:
+        raise AssertionError("LAM_OPTIONS definition not found")
+
+    build_source = _extract_function_source(source, "buildOptions(data)")
     return lam_match.group(0), build_source
 
 
@@ -55,8 +59,13 @@ def _run_build_options(data):
             $build_source
             const result = buildOptions(data);
             const mapped = result.pairs.map(p => ({
-                artFile: p.artFile.path,
-                templateFile: p.templateFile.path,
+                skip: !!p.skip,
+                mode: p.mode,
+                processingMode: p.processingMode,
+                blankTemplateMode: !!p.blankTemplateMode,
+                artFile: p.artFile ? p.artFile.path : null,
+                outputRootArtPath: p.outputRootArtPath || "",
+                templateFile: p.templateFile ? p.templateFile.path : null,
                 templateCode: p.templateCode,
                 laminate: p.laminate,
                 paper: p.paper,
@@ -103,8 +112,81 @@ def test_build_options_skips_flagged_pairs_and_items():
 
     pairs = _run_build_options(data)
 
-    assert [p["artFile"] for p in pairs] == ["art-one.ai", "art-four.ai"]
+    assert len(pairs) == 4
+    assert [p["artFile"] for p in pairs] == [
+        "art-one.ai",
+        "art-two.ai",
+        "art-three.ai",
+        "art-four.ai",
+    ]
+    assert pairs[1]["skip"] is True
+    assert pairs[2]["skip"] is True
     assert pairs[0]["orderData"]["filename"] == "keep.ai"
-    assert pairs[1]["orderData"]["filename"] == "keep-last.ai"
-    assert pairs[1]["laminate"]["name"] == "Uncoated"
-    assert pairs[1]["paper"] == "Paper D"
+    assert pairs[3]["orderData"]["filename"] == "keep-last.ai"
+    assert pairs[3]["laminate"]["name"] == "Uncoated"
+    assert pairs[3]["paper"] == "Paper D"
+
+
+def test_build_options_blank_template_mode_does_not_require_art_path():
+    data = {
+        "items": [
+            {"filename": "blank.ai", "info": "blank-mode", "lamType": "Matte", "paperType": "Paper A"},
+            {"filename": "normal.ai", "info": "standard", "lamType": "Gloss", "paperType": "Paper B"},
+        ],
+        "pairs": [
+            {
+                "art_path": "should-not-be-used.ai",
+                "template_path": "template-blank.ai",
+                "template": "TB",
+                "blank_template": True,
+            },
+            {"art_path": "normal-art.ai", "template_path": "template-normal.ai", "template": "TN"},
+        ],
+    }
+
+    pairs = _run_build_options(data)
+
+    assert pairs[0]["templateCode"] == "TB"
+    assert pairs[0]["templateFile"] == "template-blank.ai"
+    assert pairs[0]["artFile"] is None
+    assert pairs[0]["outputRootArtPath"] == "should-not-be-used.ai"
+    assert pairs[1]["artFile"] == "normal-art.ai"
+
+
+def test_build_options_preserves_explicit_output_root_path_for_skipped_pair():
+    data = {
+        "items": [{"filename": "skip.ai", "info": "skip", "lamType": "Gloss", "paperType": "Paper A"}],
+        "pairs": [
+            {
+                "art_path": "unused-art.ai",
+                "output_root_path": "order-source/page1.pdf",
+                "template_path": "template-skip.ai",
+                "template": "TS",
+                "skip": True,
+            }
+        ],
+    }
+
+    pairs = _run_build_options(data)
+
+    assert len(pairs) == 1
+    assert pairs[0]["skip"] is True
+    assert pairs[0]["outputRootArtPath"] == "order-source/page1.pdf"
+
+
+def test_build_options_default_mode_keeps_art_file_when_blank_template_not_enabled():
+    data = {
+        "items": [
+            {"filename": "default.ai", "info": "default", "lamType": "Matte", "paperType": "Paper A"}
+        ],
+        "pairs": [
+            {"art_path": "default-art.ai", "template_path": "template-default.ai", "template": "TD"}
+        ],
+    }
+
+    pairs = _run_build_options(data)
+
+    assert len(pairs) == 1
+    assert pairs[0]["artFile"] == "default-art.ai"
+
+

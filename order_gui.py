@@ -54,14 +54,17 @@ from utils.history import (
     record_run_history,
     update_last_run_flagged,
     summarize_history,
+    HISTORY_FILE,
 )
 from review import (
+    BLANK_TEMPLATE_ART_SENTINEL,
     FlaggedItem,
     FlagStatus,
     load_flags,
     save_flags,
     ReviewManager,
     FLAG_REASONS,
+    FLAGS_FILE,
 )
 from utils.version import get_version
 try:
@@ -91,6 +94,23 @@ SUMMARY_ARTIFACT_PATH = SUMMARY_DIR / "last_run.json"
 
 PRINT_FOLDER_NAME = "print"
 DIAGNOSTIC_PRINT_FOLDER_NAME = "--DO NOT USE - PRINT--"
+
+
+def _can_enable_template_save(
+    current_code: str | None,
+    unsaved_flag: bool,
+    is_valid: bool,
+) -> bool:
+    return current_code is not None and unsaved_flag and is_valid
+
+
+def _resolve_template_settings_code(
+    current_code: str | None,
+    selection: Sequence[str],
+) -> str | None:
+    if current_code:
+        return current_code
+    return selection[0] if selection else None
 
 
 def ensure_summary_dir():
@@ -306,6 +326,7 @@ def _guess_flat_filename(
     candidate: Mapping[str, Any],
     sequence: int,
     fallback_base: str,
+    run_start_time: float | None = None,
     exclude: Iterable[str] | None = None,
 ) -> str:
     """Return an existing ``*_flat_`` filename when metadata is incomplete."""
@@ -359,11 +380,22 @@ def _guess_flat_filename(
 
     exact_matches: list[str] = []
     scored_candidates: list[tuple[str, int]] = []
+    def _is_recent(name: str) -> bool:
+        if run_start_time is None:
+            return True
+        try:
+            mtime = os.path.getmtime(os.path.join(print_folder, name))
+        except OSError:
+            return False
+        return mtime >= run_start_time
+
     for name in entries:
         if excluded and name in excluded:
             continue
         lower = name.lower()
         if not lower.endswith(suffix):
+            continue
+        if not _is_recent(name):
             continue
         if order_id and order_id not in lower:
             continue
@@ -405,7 +437,9 @@ def prepare_flat_review_entries(
     candidates: Sequence[dict],
     assignments: Mapping[int, str],
     skip_indices: Iterable[int],
+    blank_template_indices: Iterable[int] = (),
     *,
+    run_start_time: float | None = None,
     diagnostic: bool,
 ) -> tuple[
     list[tuple[int, str, tuple[str, str, int, str, str, str, str, str]]],
@@ -414,6 +448,7 @@ def prepare_flat_review_entries(
     """Build flat-review metadata using resolved art assignments."""
 
     skip_set = set(skip_indices)
+    blank_template_set = set(blank_template_indices)
     flat_entries: list[
         tuple[int, str, tuple[str, str, int, str, str, str, str, str]]
     ] = []
@@ -426,8 +461,11 @@ def prepare_flat_review_entries(
         if idx is None or idx in skip_set:
             continue
 
+        is_blank_template = idx in blank_template_set
         art_path = assignments.get(idx, "") or candidate.get("art_path")
-        if not art_path:
+        if is_blank_template:
+            art_path = BLANK_TEMPLATE_ART_SENTINEL
+        elif not art_path:
             continue
 
         filename_base = candidate.get("filename_base") or ""
@@ -464,6 +502,7 @@ def prepare_flat_review_entries(
                 candidate,
                 sequence,
                 filename_base,
+                run_start_time,
                 exclude=used_flat_paths,
             )
             if resolved_name:
@@ -502,6 +541,52 @@ QUEUE_PAGE_URL = ""
 # Default ChatGPT API base URL
 CHAT_API_URL = "https://api.openai.com/v1"
 
+# Default order quantity that should use sample templates/output behavior.
+DEFAULT_SAMPLE_QUANTITY = 11
+
+
+def get_sample_quantity(settings_or_value=None) -> int:
+    """Return a positive sample quantity from settings or a raw value."""
+    value = settings_or_value
+    if isinstance(settings_or_value, Mapping):
+        value = settings_or_value.get("sample_quantity", DEFAULT_SAMPLE_QUANTITY)
+    try:
+        if isinstance(value, str):
+            value = value.strip()
+        quantity = int(value)
+        if quantity > 0:
+            return quantity
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_SAMPLE_QUANTITY
+
+
+def is_sample_quantity(qty: Any, sample_qty: int | None = None) -> bool:
+    """Return whether ``qty`` falls in the configured sample quantity range."""
+    try:
+        quantity = int(qty)
+    except (TypeError, ValueError):
+        return False
+    configured_sample_qty = get_sample_quantity(sample_qty)
+    lower_bound = min(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    upper_bound = max(DEFAULT_SAMPLE_QUANTITY, configured_sample_qty)
+    return lower_bound <= quantity <= upper_bound
+
+
+def has_sample_pairs(
+    pairs_data: Sequence[Mapping[str, Any]], sample_qty: int | None = None
+) -> bool:
+    """Return ``True`` when any pair should be treated as a sample run."""
+    configured_sample_qty = get_sample_quantity(sample_qty)
+    for pair in pairs_data:
+        if bool(pair.get("sample")):
+            return True
+        pair_sample_qty = get_sample_quantity(
+            pair.get("sample_quantity", configured_sample_qty)
+        )
+        if is_sample_quantity(pair.get("qty"), pair_sample_qty):
+            return True
+    return False
 
 
 def get_queue_headers(referer: str | None = None) -> dict[str, str]:
@@ -829,11 +914,98 @@ def find_art_file(
 
 
 
-def find_template_file(root: str, template: str, sample: bool = False) -> str:
+SAMPLE_TEMPLATE_DIR_PATTERNS = ("sample", "samples")
+SAMPLE_TEMPLATE_TOKEN_PATTERN = re.compile(r"(^|[\s_.\-()[\]])sample([\s_.\-()[\]]|$)", re.I)
+
+
+def _is_sample_template_candidate(
+    path: str,
+    *,
+    sample_matcher: Callable[[str], bool | None] | None = None,
+) -> bool:
+    """Return ``True`` if ``path`` appears to be a sample template."""
+    if sample_matcher is not None:
+        try:
+            decision = sample_matcher(path)
+        except Exception:
+            decision = None
+        if decision is not None:
+            return bool(decision)
+
+    parent_parts = Path(path).parts[:-1]
+    if any(re.search(pattern, part, re.I) for part in parent_parts for pattern in SAMPLE_TEMPLATE_DIR_PATTERNS):
+        return True
+
+    name = os.path.basename(path)
+    stem = os.path.splitext(name)[0]
+    if SAMPLE_TEMPLATE_TOKEN_PATTERN.search(stem):
+        return True
+
+    # Backward compatibility for existing legacy naming.
+    return "(sample)" in name.lower()
+
+
+def build_sample_template_matcher(
+    *sources: Mapping[str, Any] | None,
+) -> Callable[[str], bool | None] | None:
+    """Build a sample-template matcher from caller-provided metadata."""
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("template_is_sample", "is_sample_template", "sample_template"):
+            if key not in source:
+                continue
+            raw = source.get(key)
+            if isinstance(raw, bool):
+                return lambda _path, val=raw: val
+            if isinstance(raw, str):
+                val = raw.strip().lower()
+                if val in {"1", "true", "yes", "y"}:
+                    return lambda _path: True
+                if val in {"0", "false", "no", "n"}:
+                    return lambda _path: False
+
+    dir_hints: list[str] = []
+    token_hints: list[str] = []
+    for source in sources:
+        if not isinstance(source, Mapping):
+            continue
+        for key in ("sample_template_dir", "template_sample_dir"):
+            hint = str(source.get(key, "")).strip().lower()
+            if hint:
+                dir_hints.append(hint)
+        for key in ("sample_template_token", "template_sample_token"):
+            hint = str(source.get(key, "")).strip().lower()
+            if hint:
+                token_hints.append(hint)
+    if not dir_hints and not token_hints:
+        return None
+
+    def matcher(path: str) -> bool | None:
+        path_obj = Path(path)
+        parts = [part.lower() for part in path_obj.parts[:-1]]
+        if any(hint in part for hint in dir_hints for part in parts):
+            return True
+        stem = path_obj.stem.lower()
+        if any(re.search(rf"(^|[\s_.\-()[\]]){re.escape(hint)}([\s_.\-()[\]]|$)", stem) for hint in token_hints):
+            return True
+        return None
+
+    return matcher
+
+
+def find_template_file(
+    root: str,
+    template: str,
+    sample: bool = False,
+    *,
+    sample_matcher: Callable[[str], bool | None] | None = None,
+) -> str:
     """Return the template file path for ``template``.
 
-    When ``sample`` is ``True`` the name must contain ``(SAMPLE)``.  When
-    ``False`` any such files are ignored.
+    ``sample`` selection is based on explicit sample metadata from
+    ``sample_matcher`` or path context (sample folders/tokens). Legacy
+    ``(SAMPLE)`` naming remains supported for compatibility.
     """
     if not root or not template:
         return ""
@@ -849,13 +1021,18 @@ def find_template_file(root: str, template: str, sample: bool = False) -> str:
                 and "_print" in low
                 and "-vp" in low
             ):
-                if sample and "(sample)" not in low:
+                candidate_path = os.path.join(dirpath, name)
+                is_sample = _is_sample_template_candidate(
+                    candidate_path,
+                    sample_matcher=sample_matcher,
+                )
+                if sample and not is_sample:
                     continue
-                if not sample and "(sample)" in low:
+                if not sample and is_sample:
                     continue
                 m = re.search(r"(\d+)in", low)
                 num = int(m.group(1)) if m else 999
-                candidates.append((num, os.path.join(dirpath, name)))
+                candidates.append((num, candidate_path))
     if not candidates:
         return ""
     candidates.sort(key=lambda x: x[0])
@@ -920,6 +1097,26 @@ def get_item_quantity(item: dict) -> int:
         except Exception:
             pass
     return 0
+
+
+def _resolve_template_and_paper(
+    temp_root: str,
+    template_code: str,
+    item_dict: Mapping[str, Any] | None,
+) -> tuple[str, str]:
+    """Return ``(template_path, paper_type)`` using shared sample rules."""
+    context = dict(item_dict or {})
+    quantity = get_item_quantity(context)
+    is_sample = is_sample_quantity(quantity, context.get("sample_quantity"))
+    sample_matcher = build_sample_template_matcher(context)
+    template_path = find_template_file(
+        temp_root,
+        template_code,
+        sample=is_sample,
+        sample_matcher=sample_matcher,
+    )
+    paper_type = extract_paper_type(template_path)
+    return template_path, paper_type
 
 
 def sanitize_filename_base(name: str) -> str:
@@ -1644,6 +1841,16 @@ class App:
         self.cur_setting_var = tk.StringVar()
         self.cur_setting_entry = tk.Entry(info_frame, textvariable=self.cur_setting_var, state="disabled", width=20)
         self.cur_setting_entry.grid(row=2, column=1, padx=5, pady=2)
+        tk.Button(
+            info_frame,
+            text="Edit Template Settings",
+            command=self.open_selected_template_settings_editor,
+        ).grid(row=2, column=2, padx=5, pady=2, sticky="w")
+        tk.Label(
+            info_frame,
+            text="Edit rotation, bleed mode/path names, mirror, scale, alignment.",
+            fg="gray40",
+        ).grid(row=2, column=3, sticky="w")
         self.coffee_label = tk.Label(info_frame, text="", fg="brown")
         self.coffee_label.grid(row=3, column=0, columnspan=4, sticky="w")
         info_frame.pack(padx=5, pady=2, anchor="w")
@@ -1718,7 +1925,12 @@ class App:
         self.chat_client = None
         self.appearance_var = tk.StringVar()
         self.diagnostic_var = tk.BooleanVar(value=False)
+        self.sample_quantity_var = tk.StringVar()
+        self.output_lines_var = tk.BooleanVar(value=True)
+        self.output_flat_var = tk.BooleanVar(value=True)
         self.review_flats_var = tk.BooleanVar(value=False)
+        self.skip_po_no_page2_var = tk.BooleanVar(value=True)
+        self.create_blank_po_no_page2_var = tk.BooleanVar(value=False)
         self.preserve_color_var = tk.BooleanVar(value=False)
         self.convert_profile_var = tk.BooleanVar(value=False)
         self.pending_flat_paths: list[str] = []
@@ -1730,7 +1942,14 @@ class App:
 
         settings = load_settings()
         self.diagnostic_var.set(settings.get("diagnostic_mode", False))
+        self.sample_quantity_var.set(str(get_sample_quantity(settings)))
+        self.output_lines_var.set(settings.get("output_lined_pdf", True))
+        self.output_flat_var.set(settings.get("output_flat_pdf", True))
         self.review_flats_var.set(settings.get("review_flats", False))
+        self.skip_po_no_page2_var.set(settings.get("skip_po_no_page2", True))
+        self.create_blank_po_no_page2_var.set(settings.get("create_blank_po_no_page2", False))
+        if self.skip_po_no_page2_var.get() and self.create_blank_po_no_page2_var.get():
+            self.create_blank_po_no_page2_var.set(False)
         self.preserve_color_var.set(settings.get("preserve_color_profile", False))
         self.convert_profile_var.set(settings.get("convert_art_color_profile", False))
         self.login_url_var.set(settings.get("login_url", ""))
@@ -1838,6 +2057,51 @@ class App:
             variable=self.diagnostic_var,
         ).grid(row=row, column=0, sticky="w")
         row += 1
+        tk.Checkbutton(
+            diag_frame,
+            text="Skip no page 2 art (PO templates)",
+            variable=self.skip_po_no_page2_var,
+            command=self.on_skip_po_no_page2_toggle,
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Checkbutton(
+            diag_frame,
+            text="Create blank print file template for PO templates",
+            variable=self.create_blank_po_no_page2_var,
+            command=self.on_create_blank_po_no_page2_toggle,
+        ).grid(row=row, column=0, sticky="w")
+        row += 1
+        tk.Label(diag_frame, text="Sample template quantity").grid(
+            row=row, column=0, sticky="w"
+        )
+        tk.Entry(diag_frame, textvariable=self.sample_quantity_var, width=10).grid(
+            row=row, column=1, padx=5, pady=2, sticky="w"
+        )
+        tk.Button(
+            diag_frame,
+            text="Update Settings",
+            command=self.save_settings,
+        ).grid(row=row, column=2, padx=5, pady=2, sticky="w")
+        row += 1
+        file_output_frame = tk.LabelFrame(diag_frame, text="File Output")
+        file_output_frame.grid(row=row, column=0, sticky="we", padx=12, pady=(2, 4))
+        tk.Label(
+            file_output_frame,
+            text="Sample jobs only. Non-sample jobs always save lined + flat.",
+        ).grid(row=0, column=0, sticky="w")
+        tk.Checkbutton(
+            file_output_frame,
+            text="Sample: Lined PDF",
+            variable=self.output_lines_var,
+            command=self.save_settings,
+        ).grid(row=1, column=0, sticky="w")
+        tk.Checkbutton(
+            file_output_frame,
+            text="Sample: Flat PDF",
+            variable=self.output_flat_var,
+            command=self.save_settings,
+        ).grid(row=2, column=0, sticky="w")
+        row += 1
         tk.Button(
             diag_frame,
             text="Open Art Directories",
@@ -1860,6 +2124,12 @@ class App:
             diag_frame,
             text="History",
             command=self.show_dashboard,
+        ).grid(row=row, column=0, pady=2, sticky="w")
+        row += 1
+        tk.Button(
+            diag_frame,
+            text="Clear Metadata",
+            command=lambda: self.clear_metadata_cache(show_popup=True),
         ).grid(row=row, column=0, pady=2, sticky="w")
         row += 1
         tk.Button(
@@ -2035,25 +2305,43 @@ class App:
         self.total_time_var.set(f"Total time: {int(elapsed)}s")
         self.root.after(1000, self.update_timer)
 
-    def on_exit(self):
-        self.save_settings()
-        # Persist unresolved flagged items
-        if hasattr(self, "review"):
-            save_flags(self.review.flagged_items)
+    def clear_metadata_cache(self, show_popup: bool = False):
+        removed_paths = []
+        had_error = False
         try:
             ensure_summary_dir()
             artifact_paths = [
                 SUMMARY_ARTIFACT_PATH,
                 SUMMARY_DIR / "Automation Summary.txt",
+                HISTORY_FILE,
+                FLAGS_FILE,
             ]
             for path in artifact_paths:
                 if path.exists():
                     path.unlink()
+                    removed_paths.append(path)
         except Exception as exc:
-            self.log_message(f"Unable to clear summary artifacts: {exc}")
+            had_error = True
+            self.log_message(f"Unable to clear metadata cache: {exc}")
+        if show_popup and not had_error:
+            if removed_paths:
+                removed_list = "\n".join(f"- {path.name}" for path in removed_paths)
+                messagebox.showinfo(
+                    "Metadata Cleared",
+                    f"Cleared metadata:\n{removed_list}",
+                )
+            else:
+                messagebox.showinfo("Metadata Cleared", "No metadata to clear.")
         self.pending_flat_info = []
         self.pending_flat_paths = []
         self.pending_flat_pairs = []
+
+    def on_exit(self):
+        self.save_settings()
+        # Persist unresolved flagged items
+        if hasattr(self, "review"):
+            save_flags(self.review.flagged_items)
+        self.clear_metadata_cache()
         self.root.quit()
 
     def show_about(self):
@@ -2110,7 +2398,15 @@ class App:
 
         table_frame = tk.Frame(template_frame)
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        columns = ("code", "rotation", "bleed", "mirror", "artworkScale", "alignment")
+        columns = (
+            "code",
+            "rotation",
+            "bleedMode",
+            "bleed",
+            "mirror",
+            "artworkScale",
+            "alignment",
+        )
         tree = ttk.Treeview(
             table_frame,
             columns=columns,
@@ -2118,10 +2414,21 @@ class App:
             selectmode="browse",
         )
         tree.pack(side="left", fill="both", expand=True)
+        heading_labels = {
+            "code": "Code",
+            "rotation": "Rotation",
+            "bleedMode": "Bleed Mode",
+            "bleed": "Bleed Paths",
+            "mirror": "Mirror",
+            "artworkScale": "Artwork Scale",
+            "alignment": "Alignment",
+        }
         for col in columns:
-            tree.heading(col, text=col.title())
+            tree.heading(col, text=heading_labels.get(col, col.title()))
             if col == "bleed":
                 width = 240
+            elif col == "bleedMode":
+                width = 110
             elif col == "alignment":
                 width = 140
             else:
@@ -2137,8 +2444,18 @@ class App:
         mirror_var = tk.BooleanVar()
         scale_var = tk.StringVar()
         alignment_var = tk.StringVar(value="center")
+        bleed_mode_var = tk.StringVar(value="auto")
+        auto_bleed_var = tk.BooleanVar(value=True)
         status_var = tk.StringVar()
         unsaved = {"flag": False}
+        current_code = {"value": None}
+        is_loading = {"value": False}
+
+        def normalize_bleed_mode(value: str) -> str:
+            return "manual" if str(value).strip().lower() == "manual" else "auto"
+
+        def display_bleed_mode(value: str) -> str:
+            return "Manual" if normalize_bleed_mode(value) == "manual" else "Auto"
 
         def refresh_table(*_):
             sel = tree.selection()
@@ -2156,11 +2473,12 @@ class App:
                 mirror = data.get("mirror", False)
                 scale = data.get("artworkScale", "")
                 alignment = data.get("alignment", "center")
+                bleed_mode = normalize_bleed_mode(data.get("bleedMode", "auto"))
                 tree.insert(
                     "",
                     "end",
                     iid=code,
-                    values=(code, rot, bleed, mirror, scale, alignment),
+                    values=(code, rot, display_bleed_mode(bleed_mode), bleed, mirror, scale, alignment),
                 )
             if sel and sel[0] in tree.get_children():
                 tree.selection_set(sel[0])
@@ -2172,17 +2490,24 @@ class App:
             sel = tree.selection()
             if not sel:
                 return
-            code = sel[0]
-            data = load_template_settings(code)
-            rotation_var.set(str(data.get("rotation", "")))
-            bleed_var.set(", ".join(data.get("bleedPaths", [])))
-            mirror_var.set(bool(data.get("mirror", False)))
-            scale_var.set(str(data.get("artworkScale", "")))
-            alignment_var.set(str(data.get("alignment", "center")))
-            unsaved["flag"] = False
+            selected_code = sel[0]
+            data = load_template_settings(selected_code)
+            is_loading["value"] = True
+            try:
+                rotation_var.set(str(data.get("rotation", "")))
+                bleed_var.set(", ".join(data.get("bleedPaths", [])))
+                mirror_var.set(bool(data.get("mirror", False)))
+                scale_var.set(str(data.get("artworkScale", "")))
+                alignment_var.set(str(data.get("alignment", "center")))
+                bleed_mode_var.set(normalize_bleed_mode(data.get("bleedMode", "auto")))
+                auto_bleed_var.set(bleed_mode_var.get() == "auto")
+                current_code["value"] = selected_code
+                unsaved["flag"] = False
+            finally:
+                is_loading["value"] = False
             update_state()
-            tags = tuple(t for t in tree.item(code, "tags") if t != "unsaved")
-            tree.item(code, tags=tags)
+            tags = tuple(t for t in tree.item(selected_code, "tags") if t != "unsaved")
+            tree.item(selected_code, tags=tags)
 
         tree.bind("<<TreeviewSelect>>", load_selected)
 
@@ -2191,28 +2516,47 @@ class App:
         tk.Label(edit_frame, text="Rotation").grid(row=0, column=0, sticky="w")
         tk.Entry(edit_frame, textvariable=rotation_var).grid(row=0, column=1, sticky="we")
         tk.Label(edit_frame, text="Bleed Paths").grid(row=1, column=0, sticky="w")
-        tk.Entry(edit_frame, textvariable=bleed_var).grid(row=1, column=1, sticky="we")
-        tk.Label(edit_frame, text="Alignment").grid(row=2, column=0, sticky="w")
+        bleed_entry = tk.Entry(edit_frame, textvariable=bleed_var)
+        bleed_entry.grid(row=1, column=1, sticky="we")
+        tk.Label(
+            edit_frame,
+            text=(
+                "Leave blank to auto-detect bleed paths named "
+                "'bleed', 'bleed 1', 'bleed 2', etc."
+            ),
+            fg="gray40",
+            wraplength=420,
+            justify="left",
+        ).grid(row=2, column=1, sticky="w", pady=(2, 0))
+        tk.Label(edit_frame, text="Bleed Mode").grid(row=3, column=0, sticky="w")
+        tk.Checkbutton(
+            edit_frame,
+            text="Auto-detect bleed paths",
+            variable=auto_bleed_var,
+            onvalue=True,
+            offvalue=False,
+        ).grid(row=3, column=1, sticky="w")
+        tk.Label(edit_frame, text="Alignment").grid(row=4, column=0, sticky="w")
         alignment_combo = ttk.Combobox(
             edit_frame,
             textvariable=alignment_var,
             values=ALLOWED_ALIGNMENTS,
             state="readonly",
         )
-        alignment_combo.grid(row=2, column=1, sticky="we")
+        alignment_combo.grid(row=4, column=1, sticky="we")
         tk.Checkbutton(edit_frame, text="Mirror", variable=mirror_var).grid(
-            row=3, column=0, columnspan=2, sticky="w"
+            row=5, column=0, columnspan=2, sticky="w"
         )
-        tk.Label(edit_frame, text="Artwork Scale").grid(row=4, column=0, sticky="w")
-        tk.Entry(edit_frame, textvariable=scale_var).grid(row=4, column=1, sticky="we")
+        tk.Label(edit_frame, text="Artwork Scale").grid(row=6, column=0, sticky="w")
+        tk.Entry(edit_frame, textvariable=scale_var).grid(row=6, column=1, sticky="we")
         edit_frame.grid_columnconfigure(1, weight=1)
 
         def validate() -> bool:
             rot = rotation_var.get().strip()
-            bleed = bleed_var.get().strip()
             scale = scale_var.get().strip()
             alignment = alignment_var.get().strip()
-            if not rot or not bleed or not scale or not alignment:
+            bleed_mode = normalize_bleed_mode(bleed_mode_var.get().strip())
+            if not rot or not scale or not alignment or not bleed_mode:
                 return False
             try:
                 int(rot)
@@ -2225,17 +2569,23 @@ class App:
                 return False
             if alignment not in ALLOWED_ALIGNMENTS:
                 return False
+            if bleed_mode not in {"auto", "manual"}:
+                return False
+            if bleed_mode == "manual":
+                paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
+                if not paths:
+                    return False
             return True
 
         def mark_unsaved(*_):
-            sel = tree.selection()
-            if not sel:
+            if is_loading["value"]:
                 return
-            unsaved["flag"] = True
-            item_id = sel[0]
-            tags = tree.item(item_id, "tags")
-            if "unsaved" not in tags:
-                tree.item(item_id, tags=tags + ("unsaved",))
+            item_id = current_code["value"]
+            if item_id:
+                unsaved["flag"] = True
+                tags = tree.item(item_id, "tags")
+                if "unsaved" not in tags:
+                    tree.item(item_id, tags=tags + ("unsaved",))
             update_state()
 
         rotation_var.trace_add("write", mark_unsaved)
@@ -2243,28 +2593,50 @@ class App:
         mirror_var.trace_add("write", mark_unsaved)
         scale_var.trace_add("write", mark_unsaved)
         alignment_var.trace_add("write", mark_unsaved)
+        bleed_mode_var.trace_add("write", mark_unsaved)
+        auto_bleed_var.trace_add("write", mark_unsaved)
 
         def update_state():
-            if unsaved["flag"] and validate():
+            bleed_mode = normalize_bleed_mode(bleed_mode_var.get())
+            is_auto_mode = bleed_mode == "auto"
+            bleed_entry.config(state="disabled" if is_auto_mode else "normal")
+            can_save = _can_enable_template_save(
+                current_code["value"],
+                unsaved["flag"],
+                validate(),
+            )
+            if can_save:
                 save_btn.config(state="normal")
             else:
                 save_btn.config(state="disabled")
 
+        def sync_bleed_mode_from_toggle(*_):
+            if is_loading["value"]:
+                return
+            bleed_mode_var.set("auto" if auto_bleed_var.get() else "manual")
+            update_state()
+
+        auto_bleed_var.trace_add("write", sync_bleed_mode_from_toggle)
+
         def save():
             sel = tree.selection()
-            if not sel:
+            code = _resolve_template_settings_code(current_code["value"], sel)
+            if not code:
                 return
-            code = sel[0]
             updates: dict[str, object] = {}
             rot_text = rotation_var.get().strip()
             updates["rotation"] = int(rot_text)
+            bleed_mode_value = normalize_bleed_mode(bleed_mode_var.get().strip())
             paths = [p.strip() for p in re.split(r"[,\s]+", bleed_var.get()) if p.strip()]
+            if bleed_mode_value == "auto":
+                paths = []
             updates["bleedPaths"] = paths
             updates["mirror"] = mirror_var.get()
             scale_text = scale_var.get().strip()
             updates["artworkScale"] = float(scale_text)
             alignment_value = alignment_var.get().strip()
             updates["alignment"] = alignment_value
+            updates["bleedMode"] = bleed_mode_value
             try:
                 update_template_settings(code, updates)
                 tree.item(
@@ -2272,6 +2644,7 @@ class App:
                     values=(
                         code,
                         updates["rotation"],
+                        display_bleed_mode(bleed_mode_value),
                         ", ".join(paths),
                         updates["mirror"],
                         updates["artworkScale"],
@@ -2301,25 +2674,44 @@ class App:
 
                     tk.Label(master, text="Bleed paths:").grid(row=2, column=0, sticky="e")
                     self.bleed_var = tk.StringVar()
-                    tk.Entry(master, textvariable=self.bleed_var).grid(row=2, column=1, sticky="we")
+                    self.bleed_entry = tk.Entry(master, textvariable=self.bleed_var)
+                    self.bleed_entry.grid(row=2, column=1, sticky="we")
 
                     self.mirror_var = tk.BooleanVar(value=False)
-                    tk.Checkbutton(master, text="Mirror", variable=self.mirror_var).grid(row=3, column=1, sticky="w")
+                    tk.Checkbutton(master, text="Mirror", variable=self.mirror_var).grid(row=4, column=1, sticky="w")
 
-                    tk.Label(master, text="Artwork scale:").grid(row=4, column=0, sticky="e")
+                    tk.Label(master, text="Bleed mode:").grid(row=3, column=0, sticky="e")
+                    self.auto_bleed_var = tk.BooleanVar(value=True)
+                    tk.Checkbutton(
+                        master,
+                        text="Auto-detect bleed paths",
+                        variable=self.auto_bleed_var,
+                        onvalue=True,
+                        offvalue=False,
+                        command=self._update_bleed_state,
+                    ).grid(row=3, column=1, sticky="w")
+
+                    tk.Label(master, text="Artwork scale:").grid(row=5, column=0, sticky="e")
                     self.scale_var = tk.StringVar(value="1")
-                    tk.Entry(master, textvariable=self.scale_var).grid(row=4, column=1, sticky="we")
+                    tk.Entry(master, textvariable=self.scale_var).grid(row=5, column=1, sticky="we")
 
-                    tk.Label(master, text="Alignment:").grid(row=5, column=0, sticky="e")
+                    tk.Label(master, text="Alignment:").grid(row=6, column=0, sticky="e")
                     self.alignment_var = tk.StringVar(value="center")
                     ttk.Combobox(
                         master,
                         textvariable=self.alignment_var,
                         values=ALLOWED_ALIGNMENTS,
                         state="readonly",
-                    ).grid(row=5, column=1, sticky="we")
+                    ).grid(row=6, column=1, sticky="we")
+
+                    self._update_bleed_state()
 
                     return code_entry
+
+                def _update_bleed_state(self):
+                    self.bleed_entry.config(
+                        state="disabled" if self.auto_bleed_var.get() else "normal"
+                    )
 
                 def validate(self):
                     code = self.code_var.get().strip().upper()
@@ -2338,7 +2730,24 @@ class App:
                     except ValueError:
                         messagebox.showerror("Error", "Scale must be a non-negative number", parent=self)
                         return False
+                    bleed_mode = "auto" if self.auto_bleed_var.get() else "manual"
                     bleed = [p.strip() for p in re.split(r"[,\s]+", self.bleed_var.get()) if p.strip()]
+                    if bleed_mode not in {"auto", "manual"}:
+                        messagebox.showerror(
+                            "Error",
+                            "Bleed mode must be selected from the list",
+                            parent=self,
+                        )
+                        return False
+                    if bleed_mode == "manual" and not bleed:
+                        messagebox.showerror(
+                            "Error",
+                            "At least one bleed path is required in manual mode",
+                            parent=self,
+                        )
+                        return False
+                    if bleed_mode == "auto":
+                        bleed = []
                     alignment = self.alignment_var.get().strip()
                     if alignment not in ALLOWED_ALIGNMENTS:
                         messagebox.showerror(
@@ -2351,6 +2760,7 @@ class App:
                         "code": code,
                         "rotation": rotation,
                         "bleedPaths": bleed,
+                        "bleedMode": bleed_mode,
                         "mirror": self.mirror_var.get(),
                         "artworkScale": scale,
                         "alignment": alignment,
@@ -2367,6 +2777,7 @@ class App:
             data = {
                 "rotation": dialog.result["rotation"],
                 "bleedPaths": dialog.result["bleedPaths"],
+                "bleedMode": dialog.result["bleedMode"],
                 "mirror": dialog.result["mirror"],
                 "artworkScale": dialog.result["artworkScale"],
                 "alignment": dialog.result["alignment"],
@@ -2395,6 +2806,7 @@ class App:
                     mirror_var.set(False)
                     scale_var.set("")
                     alignment_var.set("")
+                    bleed_mode_var.set("auto")
                     unsaved["flag"] = False
                     update_state()
                 except Exception as exc:
@@ -2667,7 +3079,23 @@ class App:
 
         refresh_failsafe_table()
 
+    def open_selected_template_settings_editor(self):
+        """Open settings editor with the currently selected template preloaded."""
+        code = self.cur_template_var.get().strip().upper()
+        self.open_template_settings_editor(code=code or None)
+
+    def get_sample_quantity(self) -> int:
+        sample_var = getattr(self, "sample_quantity_var", None)
+        value = sample_var.get() if sample_var is not None else None
+        return get_sample_quantity(value)
+
+    def is_sample_job_qty(self, qty: Any) -> bool:
+        return is_sample_quantity(qty, self.get_sample_quantity())
+
     def save_settings(self):
+        normalized_sample_quantity = self.get_sample_quantity()
+        if hasattr(self, "sample_quantity_var"):
+            self.sample_quantity_var.set(str(normalized_sample_quantity))
         data = {
             "login_url": self.login_url_var.get(),
             "username": self.username_var.get(),
@@ -2688,11 +3116,24 @@ class App:
             "chat_api_url": self.chat_api_url_var.get(),
             "appearance_mode": self.appearance_var.get(),
             "diagnostic_mode": self.diagnostic_var.get(),
+            "sample_quantity": normalized_sample_quantity,
+            "output_lined_pdf": self.output_lines_var.get(),
+            "output_flat_pdf": self.output_flat_var.get(),
             "review_flats": self.review_flats_var.get(),
+            "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+            "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
             "preserve_color_profile": self.preserve_color_var.get(),
             "convert_art_color_profile": self.convert_profile_var.get(),
         }
         save_settings(data)
+
+    def on_skip_po_no_page2_toggle(self):
+        if self.skip_po_no_page2_var.get():
+            self.create_blank_po_no_page2_var.set(False)
+
+    def on_create_blank_po_no_page2_toggle(self):
+        if self.create_blank_po_no_page2_var.get():
+            self.skip_po_no_page2_var.set(False)
 
     def update_pair_display(self):
         temps = " | ".join(p.get("template", "") for p in self.pairs)
@@ -3058,8 +3499,17 @@ class App:
             if not code:
                 continue
             qty = get_item_quantity(items[idx]) if idx < len(items) else 0
-            sample = qty == 11
-            if not find_template_file(temp_dir, code, sample=sample):
+            sample = self.is_sample_job_qty(qty)
+            sample_matcher = build_sample_template_matcher(
+                p,
+                items[idx] if idx < len(items) else None,
+            )
+            if not find_template_file(
+                temp_dir,
+                code,
+                sample=sample,
+                sample_matcher=sample_matcher,
+            ):
                 label = f"{code} (sample)" if sample else code
                 if label not in missing:
                     missing.append(label)
@@ -3175,8 +3625,15 @@ class App:
         if not lam and is_coffee_sleeve(template):
             lam = "Uncoated"
         if template and not paper:
-            path = find_template_file(self.template_dir_var.get(), template)
-            paper = extract_paper_type(path)
+            lookup_item = dict(item)
+            if current_pairs and self.index < len(current_pairs):
+                lookup_item.update(current_pairs[self.index])
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
+            path, paper = _resolve_template_and_paper(
+                self.template_dir_var.get(),
+                template,
+                lookup_item,
+            )
         item["paperType"] = paper
         settings = load_template_settings(template)
         setting_val = template
@@ -3205,7 +3662,10 @@ class App:
         specials = []
         if is_coffee_sleeve(template):
             specials.append("Coffee Sleeve")
-        if settings.get("bleedPaths") and len(settings["bleedPaths"]) > 1 and not is_coffee_sleeve(template):
+        bleed_mode = str(settings.get("bleedMode", "auto") or "auto").strip().lower()
+        if bleed_mode == "auto":
+            specials.append("Auto Bleed")
+        elif settings.get("bleedPaths") and len(settings["bleedPaths"]) > 1 and not is_coffee_sleeve(template):
             specials.append(f"{len(settings['bleedPaths'])}up")
         elif is_pb001(template):
             specials.append("2up")
@@ -3436,12 +3896,20 @@ class App:
             month_root = it.get("month_dir", self.month_dir_var.get())
             order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
             art_path = find_art_file(art_root, art_id, month_root, order_id)
-            temp_path = find_template_file(temp_root, template)
-            paper = extract_paper_type(temp_path)
+            lookup_item = dict(it)
+            lookup_item.update(pair)
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
+            temp_path, paper = _resolve_template_and_paper(
+                temp_root,
+                template,
+                lookup_item,
+            )
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
+            qty = get_item_quantity(lookup_item)
+            sample = self.is_sample_job_qty(qty)
             skip_flag = bool(pair.get("skip"))
             skip_reason = pair.get("skip_reason", "")
             if skip_flag:
@@ -3456,6 +3924,9 @@ class App:
                     "template_path": temp_path,
                     "paperType": paper,
                     "lamType": lam,
+                    "qty": qty,
+                    "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
@@ -3468,13 +3939,22 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "qty": qty,
+                    "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
             )
 
-        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-            raw_pairs, pair_contexts, self.log_message
+        no_page2_policy = (
+            "blank_template" if self.create_blank_po_no_page2_var.get() else "skip"
+        )
+        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+            raw_pairs,
+            pair_contexts,
+            self.log_message,
+            no_page2_policy=no_page2_policy,
         )
 
         skip_set = set(skip_indices) | initial_skip_indices
@@ -3484,6 +3964,9 @@ class App:
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
+            if idx in blank_template_indices:
+                updated["blank_template"] = True
+                updated["blank_template_reason"] = "No page 2 art"
             if idx in skip_set:
                 updated["skip"] = True
                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
@@ -3503,6 +3986,11 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "sample_quantity": self.get_sample_quantity(),
+                "output_lined_pdf": self.output_lines_var.get(),
+                "output_flat_pdf": self.output_flat_var.get(),
+                "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+                "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
                 "convert_art_color_profile": self.convert_profile_var.get(),
                 "order_info": {
@@ -3759,6 +4247,11 @@ class App:
                             or item.get("art_path")
                             or find_art_file(art_root, art_id, month_root, order_id, filename_hint)
                         )
+                        lookup_item = dict(item)
+                        lookup_item.update(pair)
+                        lookup_item["sample_quantity"] = self.get_sample_quantity()
+                        qty = get_item_quantity(lookup_item)
+                        sample = self.is_sample_job_qty(qty)
                         skip_flag = bool(pair.get("skip"))
                         skip_reason = pair.get("skip_reason", "")
                         if skip_flag:
@@ -3771,6 +4264,9 @@ class App:
                                 "art_id": art_id,
                                 "template": template,
                                 "art_path": art_path,
+                                "qty": qty,
+                                "sample": sample,
+                                "sample_quantity": self.get_sample_quantity(),
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
@@ -3783,14 +4279,25 @@ class App:
                                 "order_id": order_id,
                                 "art_path": art_path,
                                 "template": template,
+                                "qty": qty,
+                                "sample": sample,
+                                "sample_quantity": self.get_sample_quantity(),
                                 "skip": skip_flag,
                                 "skip_reason": skip_reason,
                             }
                         )
 
                     if raw_pairs:
-                        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-                            raw_pairs, pair_contexts, self.log_message
+                        no_page2_policy = (
+                            "blank_template"
+                            if self.create_blank_po_no_page2_var.get()
+                            else "skip"
+                        )
+                        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+                            raw_pairs,
+                            pair_contexts,
+                            self.log_message,
+                            no_page2_policy=no_page2_policy,
                         )
 
                         skip_set = set(skip_indices) | initial_skip_indices
@@ -3800,6 +4307,9 @@ class App:
                             updated = dict(entry)
                             if idx in assignments:
                                 updated["art_path"] = assignments[idx]
+                            if idx in blank_template_indices:
+                                updated["blank_template"] = True
+                                updated["blank_template_reason"] = "No page 2 art"
                             if idx in skip_set:
                                 updated["skip"] = True
                                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
@@ -4345,10 +4855,16 @@ class App:
             month_root = it.get("month_dir", self.month_dir_var.get())
             pair_idx = len(raw_pairs)
             art_path = find_art_file(art_root, art_id, month_root, order_id)
-            qty = get_item_quantity(it)
-            sample = qty == 11
-            temp_path = find_template_file(temp_root, template, sample=sample)
-            paper = extract_paper_type(temp_path)
+            lookup_item = dict(it)
+            lookup_item.update(pair)
+            lookup_item["sample_quantity"] = self.get_sample_quantity()
+            qty = get_item_quantity(lookup_item)
+            sample = self.is_sample_job_qty(qty)
+            temp_path, paper = _resolve_template_and_paper(
+                temp_root,
+                template,
+                lookup_item,
+            )
             lam = it.get("lamType", "") or detect_laminate(it.get("info", ""))
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
@@ -4375,6 +4891,7 @@ class App:
                     "art_path": art_path,
                     "template_path": temp_path,
                     "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "cut_src": cut_file_for_template(temp_path) if sample else "",
                     "company": it.get("company", ""),
                     "created_by": it.get("created_by", ""),
@@ -4386,6 +4903,8 @@ class App:
                 "art_path": art_path,
                 "template_path": temp_path,
                 "qty": qty,
+                "sample": sample,
+                "sample_quantity": self.get_sample_quantity(),
                 "paperType": paper,
                 "lamType": lam,
                 "order_id": order_id,
@@ -4402,13 +4921,22 @@ class App:
                     "order_id": order_id,
                     "art_path": art_path,
                     "template": template,
+                    "qty": qty,
+                    "sample": sample,
+                    "sample_quantity": self.get_sample_quantity(),
                     "skip": skip_flag,
                     "skip_reason": skip_reason,
                 }
             )
 
-        assignments, skip_indices, skip_reasons = resolve_paired_page_art(
-            raw_pairs, pair_contexts, self.log_message
+        no_page2_policy = (
+            "blank_template" if self.create_blank_po_no_page2_var.get() else "skip"
+        )
+        assignments, skip_indices, skip_reasons, blank_template_indices = resolve_paired_page_art(
+            raw_pairs,
+            pair_contexts,
+            self.log_message,
+            no_page2_policy=no_page2_policy,
         )
 
         skip_set = set(skip_indices) | initial_skip_indices
@@ -4419,6 +4947,9 @@ class App:
             updated = dict(entry)
             if idx in assignments:
                 updated["art_path"] = assignments[idx]
+            if idx in blank_template_indices:
+                updated["blank_template"] = True
+                updated["blank_template_reason"] = "No page 2 art"
             if idx in skip_set:
                 updated["skip"] = True
                 updated["skip_reason"] = combined_skip_reasons.get(idx, "")
@@ -4428,11 +4959,35 @@ class App:
             pairs_data.append(updated)
             pair_orders.append(pair_orders_src[idx])
 
+        if (
+            has_sample_pairs(pairs_data, self.get_sample_quantity())
+            and not self.output_lines_var.get()
+            and not self.output_flat_var.get()
+        ):
+            self.run_start_time = None
+            self.last_run_start_time = None
+            self.run_id = ""
+            messagebox.showwarning(
+                "Sample output disabled",
+                (
+                    "One or more selected pairs are sample jobs, but both "
+                    "'Output lined PDF' and 'Output flat PDF' are disabled.\n\n"
+                    "Illustrator was not launched because no sample PDFs would be "
+                    "produced.\n\n"
+                    "Hint: if 'Create blank template when no page 2 art found' is "
+                    "enabled, keep flat output on so blank-template samples can still "
+                    "generate the expected flat PDF."
+                ),
+            )
+            return
+
         self._apply_paired_page_results(pairs_data, selected_indices)
         flat_entries, sample_entries = prepare_flat_review_entries(
             flat_candidates,
             assignments,
             skip_indices,
+            blank_template_indices,
+            run_start_time=self.run_start_time,
             diagnostic=self.diagnostic_var.get(),
         )
 
@@ -4466,6 +5021,11 @@ class App:
                 "order_id": self.order_id_var.get(),
                 "show_summary": self.summary_var.get(),
                 "diagnostic": self.diagnostic_var.get(),
+                "sample_quantity": self.get_sample_quantity(),
+                "output_lined_pdf": self.output_lines_var.get(),
+                "output_flat_pdf": self.output_flat_var.get(),
+                "skip_po_no_page2": self.skip_po_no_page2_var.get(),
+                "create_blank_po_no_page2": self.create_blank_po_no_page2_var.get(),
                 "preserve_color_profile": self.preserve_color_var.get(),
                 "convert_art_color_profile": self.convert_profile_var.get(),
                 "run_id": self.run_id or "",

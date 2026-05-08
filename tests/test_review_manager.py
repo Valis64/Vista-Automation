@@ -1,8 +1,19 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from review import ReviewManager, FlaggedItem, FlagStatus
+from review import (
+    BLANK_TEMPLATE_ART_SENTINEL,
+    FlaggedItem,
+    FlagStatus,
+    ReviewManager,
+    is_blank_template_art_path,
+)
 
 class ReviewManagerTest(unittest.TestCase):
+    def test_blank_template_art_path_detection(self):
+        self.assertTrue(is_blank_template_art_path(BLANK_TEMPLATE_ART_SENTINEL))
+        self.assertFalse(is_blank_template_art_path(""))
+        self.assertFalse(is_blank_template_art_path("art.pdf"))
+
     def test_flat_review_complete(self):
         tree = MagicMock()
         tree.get_children.return_value = ['id1']
