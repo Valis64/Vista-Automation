@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -207,6 +209,69 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertEqual([p.get("template") for p in saved["pairs"]], ["t1", "t3"])
         self.assertFalse(saved.get("skip_po_no_page2"))
         self.assertTrue(saved.get("create_blank_po_no_page2"))
+
+
+    def test_save_json_finds_art_with_filename_hint_when_art_id_empty(self):
+        app = order_gui.App.__new__(order_gui.App)
+        with tempfile.TemporaryDirectory() as tmp:
+            art_dir = os.path.join(tmp, "art")
+            os.makedirs(art_dir)
+            fname = "40359_RT3895G_MC5453H31H_#2.pdf"
+            expected = os.path.join(art_dir, fname)
+            open(expected, "w", encoding="utf-8").close()
+
+            app.batch_items = []
+            app.batch_pairs = []
+            app.items = [
+                {
+                    "order_id": "40359",
+                    "art_dir": art_dir,
+                    "template_dir": "temp",
+                    "month_dir": tmp,
+                    "filename": "40359_RT3895G_MC5453H31H_#2.pdf",
+                }
+            ]
+            app.pairs = [{"art_id": "", "template": "t1", "order_id": "40359"}]
+            app.pair_vars = [DummyVar(True)]
+            app.index = 0
+            app.fields = {}
+            app.art_dir_var = DummyVar(art_dir)
+            app.template_dir_var = DummyVar("temp")
+            app.month_dir_var = DummyVar(tmp)
+            app.order_id_var = DummyVar("40359")
+            app.summary_var = DummyVar(True)
+            app.diagnostic_var = DummyVar(False)
+            app.skip_po_no_page2_var = DummyVar(False)
+            app.create_blank_po_no_page2_var = DummyVar(True)
+            app.preserve_color_var = DummyVar(True)
+            app.convert_profile_var = DummyVar(False)
+            app.output_lines_var = DummyVar(True)
+            app.output_flat_var = DummyVar(True)
+            app.run_id = ""
+            app.order_info_vars = {
+                "order_id": DummyVar("40359"),
+                "company": DummyVar("Comp"),
+                "sales_rep": DummyVar("Rep"),
+            }
+            app.save_settings = lambda: None
+
+            with mock.patch("order_gui.messagebox.showerror"), mock.patch(
+                "order_gui.messagebox.showinfo"
+            ), mock.patch(
+                "order_gui._resolve_template_and_paper",
+                return_value=("template:t1", "paper:t1"),
+            ), mock.patch("order_gui.detect_laminate", return_value=""), mock.patch(
+                "order_gui.is_coffee_sleeve", return_value=False
+            ), mock.patch(
+                "order_gui.resolve_paired_page_art",
+                return_value=({}, set(), {}, set()),
+            ), mock.patch(
+                "order_gui.save_order_data"
+            ) as save_mock:
+                app.save_json()
+
+            saved = save_mock.call_args.args[0]
+            self.assertEqual(saved["pairs"][0]["art_path"], expected)
 
     def test_save_json_preserves_existing_skip_flags(self):
         app = order_gui.App.__new__(order_gui.App)
