@@ -1167,6 +1167,25 @@ def sanitize_filename_base(name: str) -> str:
     return re.sub(r'(?:_lines|\s+lines)$', '', name, flags=re.I)
 
 
+def build_art_name_hint(
+    item: Mapping[str, Any] | None,
+    pair: Mapping[str, Any] | None,
+) -> str:
+    """Return a sanitized artwork filename hint from item/pair metadata."""
+    item = item or {}
+    pair = pair or {}
+    filename_source = (
+        item.get("filename")
+        or pair.get("filename")
+        or item.get("artName")
+        or pair.get("artName")
+        or ""
+    )
+    if not filename_source:
+        return ""
+    return sanitize_filename_base(os.path.splitext(str(filename_source))[0])
+
+
 def write_paper_summary(pairs: list[dict], out_dir: str | os.PathLike | None = None) -> list[str]:
     """Write a file listing paper types for each order and return paths."""
     if out_dir is None:
@@ -3504,21 +3523,10 @@ class App:
             order_id = str(order_val).strip()
             art_id = str(pair.get("art_id", "") or "").strip()
 
-            filename_source = (
-                item.get("filename")
-                or pair.get("filename")
-                or item.get("artName")
-                or pair.get("artName")
-                or ""
-            )
-            filename_hint = ""
-            if filename_source:
-                filename_hint = sanitize_filename_base(
-                    os.path.splitext(str(filename_source))[0]
-                )
+            name_hint = build_art_name_hint(item, pair)
 
             try:
-                path = find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+                path = find_art_file(art_root, art_id, month_root, order_id, name_hint)
             except Exception:
                 path = ""
 
@@ -3936,7 +3944,8 @@ class App:
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
             order_id = pair.get("order_id", it.get("order_id", self.order_id_var.get()))
-            art_path = find_art_file(art_root, art_id, month_root, order_id)
+            name_hint = build_art_name_hint(it, pair)
+            art_path = find_art_file(art_root, art_id, month_root, order_id, name_hint)
             lookup_item = dict(it)
             lookup_item.update(pair)
             lookup_item["sample_quantity"] = self.get_sample_quantity()
@@ -4159,7 +4168,7 @@ class App:
             month_dir = item.get("month_dir", self.month_dir_var.get())
             order_id = item.get("order_id", self.order_id_var.get())
             art_id = pair.get("art_id", "")
-            name_hint = sanitize_filename_base(os.path.splitext(item.get("filename", ""))[0])
+            name_hint = build_art_name_hint(item, pair)
             path = find_art_file(art_root, art_id, month_dir, order_id, name_hint)
             dir_path = ""
             if path:
@@ -4271,22 +4280,11 @@ class App:
                         art_root = item.get("art_dir", self.art_dir_var.get())
                         month_root = item.get("month_dir", self.month_dir_var.get())
                         order_id = pair.get("order_id", item.get("order_id", self.order_id_var.get()))
-                        filename_source = (
-                            item.get("filename")
-                            or pair.get("filename")
-                            or item.get("artName")
-                            or pair.get("artName")
-                            or ""
-                        )
-                        filename_hint = ""
-                        if filename_source:
-                            filename_hint = sanitize_filename_base(
-                                os.path.splitext(str(filename_source))[0]
-                            )
+                        name_hint = build_art_name_hint(item, pair)
                         art_path = (
                             pair.get("art_path")
                             or item.get("art_path")
-                            or find_art_file(art_root, art_id, month_root, order_id, filename_hint)
+                            or find_art_file(art_root, art_id, month_root, order_id, name_hint)
                         )
                         lookup_item = dict(item)
                         lookup_item.update(pair)
@@ -4895,7 +4893,8 @@ class App:
             temp_root = it.get("template_dir", self.template_dir_var.get())
             month_root = it.get("month_dir", self.month_dir_var.get())
             pair_idx = len(raw_pairs)
-            art_path = find_art_file(art_root, art_id, month_root, order_id)
+            name_hint = build_art_name_hint(it, pair)
+            art_path = find_art_file(art_root, art_id, month_root, order_id, name_hint)
             lookup_item = dict(it)
             lookup_item.update(pair)
             lookup_item["sample_quantity"] = self.get_sample_quantity()
