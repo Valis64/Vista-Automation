@@ -543,6 +543,27 @@ CHAT_API_URL = "https://api.openai.com/v1"
 
 # Default order quantity that should use sample templates/output behavior.
 DEFAULT_SAMPLE_QUANTITY = 11
+QUANTITY_ONE_SKIP_REASON = "Quantity is 1"
+
+
+def normalize_order_quantity(value: Any) -> int | str:
+    """Return a cleaned order quantity value, preserving unknown text."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return ""
+    m = re.search(r"\d+", text)
+    if m:
+        try:
+            return int(m.group(0))
+        except ValueError:
+            pass
+    return text
 
 
 def get_sample_quantity(settings_or_value=None) -> int:
@@ -672,7 +693,7 @@ def parse_order(html: str) -> dict:
 
     Returns a dictionary with keys:
     - ``items``: list of order item dictionaries as before
-    - ``pairs``: list of ``{"template": str, "art_id": str, "skip": bool}``
+    - ``pairs``: list of ``{"template": str, "art_id": str, "qty": int | str, "skip": bool}``
       extracted from ``div.order-items`` blocks. ``skip`` is present when a pair
       is intentionally excluded from art processing (e.g., "No Print Box"
       placeholders).
@@ -764,6 +785,12 @@ def parse_order(html: str) -> dict:
             and "no print box" in (art_text or "").lower()
         )
 
+    def _apply_quantity_skip(pair: dict) -> dict:
+        if get_item_quantity(pair) == 1:
+            pair["skip"] = True
+            pair.setdefault("skip_reason", QUANTITY_ONE_SKIP_REASON)
+        return pair
+
     # Preferred simple structure
     for div in soup.select("div.order-items div.item"):
         t = div.find("span", class_="template")
@@ -772,11 +799,16 @@ def parse_order(html: str) -> dict:
             continue
         template = t.get_text(strip=True)
         art_full = a_full.get_text(strip=True)
+        qty_node = div.find("span", class_="qty")
+        qty_text = qty_node.get_text(strip=True) if qty_node else ""
+        qty_value = normalize_order_quantity(qty_text)
+        pair = {"template": template, "art_id": "", "qty": qty_value}
         if _is_no_print_box(template, art_full):
-            pairs.append({"template": template, "art_id": "", "skip": True})
+            pair["skip"] = True
+            pairs.append(_apply_quantity_skip(pair))
             continue
-        art_id = extract_art_id(art_full)
-        pairs.append({"template": template, "art_id": art_id})
+        pair["art_id"] = extract_art_id(art_full)
+        pairs.append(_apply_quantity_skip(pair))
 
     # Fallback for complex table layout
     if not pairs:
@@ -787,14 +819,17 @@ def parse_order(html: str) -> dict:
             cells = first_row.find_all("td")
             if len(cells) < 3:
                 continue
+            qty_value = normalize_order_quantity(cells[0].get_text(strip=True))
             template = cells[1].get_text(strip=True)
             art_full = cells[2].get_text(strip=True)
+            pair = {"template": template, "art_id": "", "qty": qty_value}
             if _is_no_print_box(template, art_full):
-                pairs.append({"template": template, "art_id": "", "skip": True})
+                pair["skip"] = True
+                pairs.append(_apply_quantity_skip(pair))
                 continue
-            art_id = extract_art_id(art_full)
-            if template or art_id:
-                pairs.append({"template": template, "art_id": art_id})
+            pair["art_id"] = extract_art_id(art_full)
+            if template or pair["art_id"]:
+                pairs.append(_apply_quantity_skip(pair))
 
     # Order details
     def _extract(regex: str) -> str:
@@ -1081,6 +1116,12 @@ def extract_paper_type(path: str) -> str:
 
 def get_item_quantity(item: dict) -> int:
     """Return the quantity for an order item, or ``0`` if unknown."""
+    for key in ("qty", "quantity"):
+        if key in item:
+            qty = normalize_order_quantity(item.get(key))
+            if isinstance(qty, int):
+                return qty
+
     info = str(item.get("info", ""))
     m = re.search(r"quantity[:\s-]*(\d+)", info, re.I)
     if m:
