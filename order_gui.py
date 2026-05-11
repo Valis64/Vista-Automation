@@ -4090,10 +4090,10 @@ class App:
         selected_pairs: list[dict] = []
         selected_indices: list[int] = []
         for idx, item in enumerate(items_src):
+            pair = _pair_for_index(idx)
             include = True
             if idx < len(self.pair_vars):
-                include = bool(self.pair_vars[idx].get())
-            pair = _pair_for_index(idx)
+                include = bool(pair.get("skip")) or bool(self.pair_vars[idx].get())
             if include:
                 selected_items.append(item)
                 selected_pairs.append(pair)

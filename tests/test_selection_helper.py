@@ -114,6 +114,34 @@ class SelectionHelperTest(unittest.TestCase):
         self.assertEqual([pair.get("art_id") for pair in pairs], ["a1", "a3"])
         self.assertEqual(indices, [0, 2])
 
+    def test_get_selected_items_includes_skipped_pairs_with_unchecked_var(self):
+        app = order_gui.App.__new__(order_gui.App)
+        app.items = [
+            {"order_id": "A", "art_dir": "art", "template_dir": "temp", "month_dir": "month"},
+            {"order_id": "B", "art_dir": "art", "template_dir": "temp", "month_dir": "month"},
+            {"order_id": "C", "art_dir": "art", "template_dir": "temp", "month_dir": "month"},
+        ]
+        app.batch_items = []
+        app.pairs = [
+            {
+                "art_id": "a1",
+                "template": "t1",
+                "order_id": "A",
+                "skip": True,
+                "skip_reason": "Quantity is 1",
+            },
+            {"art_id": "a2", "template": "t2", "order_id": "B"},
+            {"art_id": "a3", "template": "t3", "order_id": "C"},
+        ]
+        app.batch_pairs = []
+        app.pair_vars = [DummyVar(False), DummyVar(False), DummyVar(True)]
+
+        items, pairs, indices = app.get_selected_items()
+        self.assertEqual([item["order_id"] for item in items], ["A", "C"])
+        self.assertEqual([pair.get("art_id") for pair in pairs], ["a1", "a3"])
+        self.assertEqual([pair.get("skip_reason") for pair in pairs], ["Quantity is 1", None])
+        self.assertEqual(indices, [0, 2])
+
     def test_save_json_uses_filtered_pairs(self):
         app = order_gui.App.__new__(order_gui.App)
         app.batch_items = []
