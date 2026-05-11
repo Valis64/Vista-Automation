@@ -1079,6 +1079,9 @@ def extract_paper_type(path: str) -> str:
     return m.group(1) if m else ""
 
 
+QUANTITY_ONE_SKIP_REASON = "Quantity is 1"
+
+
 def get_item_quantity(item: dict) -> int:
     """Return the quantity for an order item, or ``0`` if unknown."""
     info = str(item.get("info", ""))
@@ -1097,6 +1100,11 @@ def get_item_quantity(item: dict) -> int:
         except Exception:
             pass
     return 0
+
+
+def is_quantity_one_pair(item_or_pair: Mapping[str, Any]) -> bool:
+    """Return ``True`` when an item or pair resolves to quantity 1."""
+    return get_item_quantity(dict(item_or_pair)) == 1
 
 
 def _resolve_template_and_paper(
@@ -3910,8 +3918,10 @@ class App:
             it["paperType"] = paper
             qty = get_item_quantity(lookup_item)
             sample = self.is_sample_job_qty(qty)
-            skip_flag = bool(pair.get("skip"))
+            skip_flag = bool(pair.get("skip")) or qty == 1
             skip_reason = pair.get("skip_reason", "")
+            if qty == 1 and not skip_reason:
+                skip_reason = QUANTITY_ONE_SKIP_REASON
             if skip_flag:
                 initial_skip_indices.add(idx)
                 if skip_reason:
@@ -4252,8 +4262,10 @@ class App:
                         lookup_item["sample_quantity"] = self.get_sample_quantity()
                         qty = get_item_quantity(lookup_item)
                         sample = self.is_sample_job_qty(qty)
-                        skip_flag = bool(pair.get("skip"))
+                        skip_flag = bool(pair.get("skip")) or qty == 1
                         skip_reason = pair.get("skip_reason", "")
+                        if qty == 1 and not skip_reason:
+                            skip_reason = QUANTITY_ONE_SKIP_REASON
                         if skip_flag:
                             initial_skip_indices.add(idx)
                             if skip_reason:
@@ -4869,8 +4881,10 @@ class App:
             if not lam and is_coffee_sleeve(template):
                 lam = "Uncoated"
             it["paperType"] = paper
-            skip_flag = bool(pair.get("skip"))
+            skip_flag = bool(pair.get("skip")) or qty == 1
             skip_reason = pair.get("skip_reason", "")
+            if qty == 1 and not skip_reason:
+                skip_reason = QUANTITY_ONE_SKIP_REASON
             if skip_flag:
                 initial_skip_indices.add(pair_idx)
                 if skip_reason:
