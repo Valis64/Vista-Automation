@@ -2,10 +2,11 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 import fitz
 
-from order_gui import format_art_move_summary, move_art_to_folder
+from order_gui import App, format_art_move_summary, move_art_to_folder
 
 
 class MoveArtTest(unittest.TestCase):
@@ -77,6 +78,40 @@ class MoveArtTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(page1))
             self.assertTrue(os.path.isfile(page2))
 
+    def test_move_art_to_art_folders_creates_missing_order_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = App.__new__(App)
+            logs = []
+            app.month_dir_var = _Value(tmp)
+            app.order_id_var = _Value("")
+            app.items = [{"order_id": "24680"}]
+            app.batch_items = []
+            app.batch_pairs = []
+            app.pairs = []
+            app.pair_vars = []
+            app.foil_vars = []
+            app.emboss_vars = []
+            app.emboss_detected = []
+            app.pair_frame = None
+            app.log_message = logs.append
+            app._show_art_move_summary = lambda *args: None
+            app._cleanup_temp_artifacts = lambda *args: None
+            app.compute_missing_art_indices = lambda *args: set()
+            app.update_checklist_count = lambda *args: None
+
+            order_dir = os.path.join(tmp, "24680")
+            self.assertFalse(os.path.exists(order_dir))
+
+            with (
+                patch("order_gui.move_art_to_folder", return_value=(0, 0, [], 0)) as mocked_move,
+                patch("order_gui.populate_pairs", return_value=0),
+            ):
+                App.move_art_to_art_folders(app)
+
+            self.assertTrue(os.path.isdir(order_dir))
+            mocked_move.assert_called_once_with(order_dir, logger=app.log_message)
+            self.assertIn(f"Created order folder: {order_dir}", logs)
+
     def test_format_art_move_summary(self):
         lines, warning = format_art_move_summary(3, 2, 4, 8)
         self.assertEqual(
@@ -99,6 +134,14 @@ class MoveArtTest(unittest.TestCase):
             ],
         )
         self.assertIsNone(warning_none)
+
+
+class _Value:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
 
 
 if __name__ == "__main__":
