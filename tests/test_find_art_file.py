@@ -50,6 +50,47 @@ class FindArtFileTest(unittest.TestCase):
 
             self.assertEqual(path, expected)
 
+    def test_finds_art_file_in_month_order_art_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            month_dir = os.path.join(tmp, "month")
+            art_dir = os.path.join(month_dir, "40359", "art")
+            os.makedirs(art_dir)
+            fname = "ART-123.ai"
+            expected = os.path.join(art_dir, fname)
+            open(expected, "w").close()
+
+            path = find_art_file("", "ART-123", month_dir, "40359")
+
+            self.assertEqual(path, expected)
+
+    def test_finds_art_file_directly_in_month_order_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            month_dir = os.path.join(tmp, "month")
+            order_dir = os.path.join(month_dir, "40359")
+            os.makedirs(order_dir)
+            fname = "ART-123.pdf"
+            expected = os.path.join(order_dir, fname)
+            open(expected, "w").close()
+
+            path = find_art_file("", "ART-123", month_dir, "40359")
+
+            self.assertEqual(path, expected)
+
+    def test_falls_back_to_explicit_root_after_month_order_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            month_dir = os.path.join(tmp, "month")
+            order_dir = os.path.join(month_dir, "40359")
+            root = os.path.join(tmp, "root")
+            os.makedirs(order_dir)
+            os.makedirs(root)
+            fname = "ART-123.ai"
+            expected = os.path.join(root, fname)
+            open(expected, "w").close()
+
+            path = find_art_file(root, "ART-123", month_dir, "40359")
+
+            self.assertEqual(path, expected)
+
 
 if __name__ == "__main__":
     unittest.main()
