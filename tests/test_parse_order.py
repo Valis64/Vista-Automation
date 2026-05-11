@@ -70,9 +70,56 @@ class ParseOrderTest(unittest.TestCase):
         self.assertTrue(data["pairs"][0].get("skip"))
         self.assertEqual(data["pairs"][0]["template"], "PO987B")
         self.assertEqual(data["pairs"][0]["art_id"], "")
-        self.assertFalse(data["pairs"][1].get("skip"))
+        self.assertTrue(data["pairs"][1].get("skip"))
+        self.assertEqual(data["pairs"][1].get("skip_reason"), "Quantity is 1")
         self.assertEqual(data["pairs"][1]["template"], "PO987A")
         self.assertEqual(data["pairs"][1]["art_id"], "ABCDE12345")
+
+    def test_simple_quantity_one_is_skipped(self):
+        html = '''
+        <div class="order-items">
+          <div class="item">
+            <span class="qty">1</span>
+            <span class="template">RT3466</span>
+            <span class="art-full">RT3466G - MBG19D57CB</span>
+          </div>
+        </div>
+        '''
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 1)
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
+
+    def test_simple_quantity_eleven_is_not_skipped(self):
+        html = '''
+        <div class="order-items">
+          <div class="item">
+            <span class="qty">11</span>
+            <span class="template">RT3466</span>
+            <span class="art-full">RT3466G - MBG19D57CB</span>
+          </div>
+        </div>
+        '''
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 1)
+        self.assertFalse(data["pairs"][0].get("skip", False))
+        self.assertEqual(data["pairs"][0].get("qty"), 11)
+
+    def test_fallback_quantity_one_is_skipped(self):
+        html = (
+            '<tbody id="unordered_items_tbody"><tr><td>'
+            '<table class="table table-inside"><tbody><tr>'
+            '<td><strong>1</strong></td>'
+            '<td><strong>RT3466</strong></td>'
+            '<td><strong>RT3466G - MBG19D57CB</strong></td>'
+            '</tr><tr><td></td><td></td><td class="text-left">'
+            '<span class="fl_name">34671_RT3466G_MBG19D57CB_#1</span>'
+            '</td></tr></tbody></table></td></tr></tbody>'
+        )
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 1)
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
 
     def test_order_info_extracted(self):
         html = """
