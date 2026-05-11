@@ -4199,6 +4199,10 @@ class App:
                     continue
                 seen.add(order_id)
                 order_dir = os.path.join(month_root, order_id)
+                folder_existed = os.path.isdir(order_dir)
+                os.makedirs(order_dir, exist_ok=True)
+                if not folder_existed:
+                    self.log_message(f"Created order folder: {order_dir}")
                 files, zips, temps, pairs = move_art_to_folder(
                     order_dir, logger=self.log_message
                 )
