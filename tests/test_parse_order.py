@@ -1,5 +1,5 @@
 import unittest
-from order_gui import parse_order
+from order_gui import parse_order, parse_order_json
 
 SAMPLE_HTML = '''
 <div class="order-items">
@@ -120,6 +120,49 @@ class ParseOrderTest(unittest.TestCase):
         self.assertEqual(len(data["pairs"]), 1)
         self.assertTrue(data["pairs"][0].get("skip"))
         self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
+
+
+    def test_fallback_quantity_one_table_row_is_skipped(self):
+        html = (
+            '<tbody id="unordered_items_tbody"><tr><td>'
+            '<table class="table table-inside"><tbody><tr>'
+            '<td><strong>1</strong></td>'
+            '<td><strong>RT3466</strong></td>'
+            '<td><strong>RT3466G - MBG19D57CB</strong></td>'
+            '</tr></tbody></table></td></tr></tbody>'
+        )
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 1)
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
+
+    def test_json_qty_one_pair_is_skipped(self):
+        data = parse_order_json(
+            '{"items": [], "pairs": [{"template": "RT3466", "art_id": "MBG19D57CB", "qty": 1}]}'
+        )
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
+
+    def test_json_quantity_one_pair_is_skipped(self):
+        data = parse_order_json(
+            '{"items": [], "pairs": [{"template": "RT3466", "art_id": "MBG19D57CB", "quantity": 1}]}'
+        )
+        self.assertTrue(data["pairs"][0].get("skip"))
+        self.assertEqual(data["pairs"][0].get("skip_reason"), "Quantity is 1")
+
+    def test_fallback_quantity_one_hundred_is_not_skipped(self):
+        html = (
+            '<tbody id="unordered_items_tbody"><tr><td>'
+            '<table class="table table-inside"><tbody><tr>'
+            '<td><strong>100</strong></td>'
+            '<td><strong>RT3466</strong></td>'
+            '<td><strong>RT3466G - MBG19D57CB</strong></td>'
+            '</tr></tbody></table></td></tr></tbody>'
+        )
+        data = parse_order(html)
+        self.assertEqual(len(data["pairs"]), 1)
+        self.assertFalse(data["pairs"][0].get("skip", False))
+        self.assertEqual(data["pairs"][0].get("qty"), 100)
 
     def test_order_info_extracted(self):
         html = """
