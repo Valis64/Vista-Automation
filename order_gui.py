@@ -913,7 +913,9 @@ def find_art_file(
     """Locate an artwork file using an ``art_id`` or optional ``name_hint``.
 
     If ``month_dir`` and ``order_id`` are provided, the search first checks
-    ``month_dir/<order_id>/art`` before falling back to ``root``.
+    ``month_dir/<order_id>/art`` and then ``month_dir/<order_id>`` before
+    falling back to the explicit ``root``. Exact ``art_id`` matches remain
+    preferred over substring and ``name_hint`` matches across all search paths.
     """
 
     if not art_id and not name_hint:
@@ -921,7 +923,10 @@ def find_art_file(
 
     search_dirs = []
     if month_dir and order_id:
-        order_path = os.path.join(month_dir, str(order_id), "art")
+        order_art_path = os.path.join(month_dir, str(order_id), "art")
+        if os.path.isdir(order_art_path):
+            search_dirs.append(order_art_path)
+        order_path = os.path.join(month_dir, str(order_id))
         if os.path.isdir(order_path):
             search_dirs.append(order_path)
     if root:
@@ -929,8 +934,8 @@ def find_art_file(
 
     art_id_l = art_id.lower()
     name_hint_l = name_hint.lower()
-    candidates: list[tuple[int, str]] = []
-    for sroot in search_dirs:
+    candidates: list[tuple[int, int, str]] = []
+    for dir_index, sroot in enumerate(search_dirs):
         for dirpath, _, files in os.walk(sroot):
             for name in files:
                 if not name.lower().endswith((".ai", ".pdf")):
@@ -941,16 +946,16 @@ def find_art_file(
                 base_id = re.sub(r"(?:_page|page)(\d+)$", "", base)
                 if art_id:
                     if art_id_l == base_id:
-                        candidates.append((0, path))
+                        candidates.append((0, dir_index, path))
                         continue
                     if art_id_l in base_id:
-                        candidates.append((1, path))
+                        candidates.append((1, dir_index, path))
                         continue
                 if name_hint and name_hint_l in low:
-                    candidates.append((2, path))
+                    candidates.append((2, dir_index, path))
     if candidates:
-        candidates.sort(key=lambda item: (item[0], item[1].lower()))
-        return candidates[0][1]
+        candidates.sort(key=lambda item: (item[0], item[1], item[2].lower()))
+        return candidates[0][2]
     return ""
 
 
