@@ -610,6 +610,14 @@ def has_sample_pairs(
     return False
 
 
+def apply_quantity_skip(pair: dict) -> dict:
+    """Mark a pair skipped when its normalized quantity is exactly one."""
+    if get_item_quantity(pair) == 1:
+        pair["skip"] = True
+        pair.setdefault("skip_reason", QUANTITY_ONE_SKIP_REASON)
+    return pair
+
+
 def get_queue_headers(referer: str | None = None) -> dict[str, str]:
     """Return browser-like headers for queue requests."""
     headers = {
@@ -785,12 +793,6 @@ def parse_order(html: str) -> dict:
             and "no print box" in (art_text or "").lower()
         )
 
-    def _apply_quantity_skip(pair: dict) -> dict:
-        if get_item_quantity(pair) == 1:
-            pair["skip"] = True
-            pair.setdefault("skip_reason", QUANTITY_ONE_SKIP_REASON)
-        return pair
-
     # Preferred simple structure
     for div in soup.select("div.order-items div.item"):
         t = div.find("span", class_="template")
@@ -805,10 +807,10 @@ def parse_order(html: str) -> dict:
         pair = {"template": template, "art_id": "", "qty": qty_value}
         if _is_no_print_box(template, art_full):
             pair["skip"] = True
-            pairs.append(_apply_quantity_skip(pair))
+            pairs.append(apply_quantity_skip(pair))
             continue
         pair["art_id"] = extract_art_id(art_full)
-        pairs.append(_apply_quantity_skip(pair))
+        pairs.append(apply_quantity_skip(pair))
 
     # Fallback for complex table layout
     if not pairs:
@@ -825,11 +827,11 @@ def parse_order(html: str) -> dict:
             pair = {"template": template, "art_id": "", "qty": qty_value}
             if _is_no_print_box(template, art_full):
                 pair["skip"] = True
-                pairs.append(_apply_quantity_skip(pair))
+                pairs.append(apply_quantity_skip(pair))
                 continue
             pair["art_id"] = extract_art_id(art_full)
             if template or pair["art_id"]:
-                pairs.append(_apply_quantity_skip(pair))
+                pairs.append(apply_quantity_skip(pair))
 
     # Order details
     def _extract(regex: str) -> str:
@@ -853,9 +855,13 @@ def parse_order(html: str) -> dict:
 def parse_order_json(text: str) -> dict:
     obj = json.loads(text)
     if isinstance(obj, dict) and "items" in obj:
+        pairs = [
+            apply_quantity_skip(pair) if isinstance(pair, dict) else pair
+            for pair in obj.get("pairs", [])
+        ]
         return {
             "items": obj["items"],
-            "pairs": obj.get("pairs", []),
+            "pairs": pairs,
             "art_dir": obj.get("art_dir", ""),
             "template_dir": obj.get("template_dir", ""),
             "month_dir": obj.get("month_dir", ""),
@@ -3787,7 +3793,7 @@ class App:
                 except Exception:
                     data = parse_order(html)
                 self.items = data.get("items", [])
-                self.pairs = data.get("pairs", [])
+                self.pairs = [apply_quantity_skip(p) for p in data.get("pairs", [])]
                 self.update_order_info(data.get("order_info"))
                 if data.get("art_dir"):
                     self.art_dir_var.set(data["art_dir"])
@@ -3842,7 +3848,7 @@ class App:
             else:
                 parsed = parse_order(data)
             self.items = parsed.get("items", [])
-            self.pairs = parsed.get("pairs", [])
+            self.pairs = [apply_quantity_skip(p) for p in parsed.get("pairs", [])]
             self.update_order_info(parsed.get("order_info"))
             if parsed.get("art_dir"):
                 self.art_dir_var.set(parsed["art_dir"])
@@ -4550,7 +4556,7 @@ class App:
             item["month_dir"] = self.month_dir_var.get()
             self.batch_items.append(item)
         for p in self.pairs:
-            pair = p.copy()
+            pair = apply_quantity_skip(p.copy())
             pair["order_id"] = order_id
             pair["company"] = company
             if sales_rep:
